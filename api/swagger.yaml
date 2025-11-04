@@ -1,0 +1,6 @@
+openapi: 3.0.3
+info:
+  title: ChatterStack API
+  version: 0.1.0
+  description: Initial scaffold for the ChatterStack REST API.
+paths: {}
