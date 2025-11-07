@@ -4,6 +4,7 @@ import (
 	"context"
 
 	"chatterstack/internal/domain/auth"
+	"chatterstack/internal/domain/models"
 )
 
 // AuthUseCase orchestrates authentication workflows.
@@ -17,7 +18,18 @@ func NewAuthUseCase(authService auth.Service) *AuthUseCase {
 }
 
 // Register delegates to the domain service.
-func (uc *AuthUseCase) Register(ctx context.Context, input auth.RegisterInput) error {
-	_, err := uc.AuthService.Register(ctx, input)
-	return err
+func (uc *AuthUseCase) Register(ctx context.Context, input auth.RegisterInput) (*models.User, error) {
+	return uc.AuthService.Register(ctx, input)
+}
+
+func (uc *AuthUseCase) Login(ctx context.Context, email, password string) (*auth.TokenPair, error) {
+	return uc.AuthService.Login(ctx, email, password)
+}
+
+func (uc *AuthUseCase) Refresh(ctx context.Context, refreshToken string) (*auth.TokenPair, error) {
+	return uc.AuthService.Refresh(ctx, refreshToken)
+}
+
+func (uc *AuthUseCase) Logout(ctx context.Context, userID string) error {
+	return uc.AuthService.Logout(ctx, userID)
 }

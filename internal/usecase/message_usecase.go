@@ -7,17 +7,26 @@ import (
 	"chatterstack/internal/domain/models"
 )
 
-// MessageUseCase orchestrates message-related workflows.
 type MessageUseCase struct {
 	MessageService messages.Service
 }
 
-// NewMessageUseCase constructs a new MessageUseCase instance.
 func NewMessageUseCase(messageService messages.Service) *MessageUseCase {
 	return &MessageUseCase{MessageService: messageService}
 }
 
-// Send delegates message creation to the domain service.
 func (uc *MessageUseCase) Send(ctx context.Context, input messages.SendMessageInput) (*models.Message, error) {
 	return uc.MessageService.Send(ctx, input)
+}
+
+func (uc *MessageUseCase) ListByRoom(ctx context.Context, roomID string, page, limit int) ([]models.Message, error) {
+	return uc.MessageService.ListByRoom(ctx, roomID, page, limit)
+}
+
+func (uc *MessageUseCase) MarkDelivered(ctx context.Context, messageID, userID string) error {
+	return uc.MessageService.MarkDelivered(ctx, messageID, userID)
+}
+
+func (uc *MessageUseCase) MarkRead(ctx context.Context, messageID, userID string) error {
+	return uc.MessageService.MarkRead(ctx, messageID, userID)
 }

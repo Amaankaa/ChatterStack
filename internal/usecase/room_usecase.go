@@ -7,17 +7,26 @@ import (
 	"chatterstack/internal/domain/rooms"
 )
 
-// RoomUseCase orchestrates room-related workflows.
 type RoomUseCase struct {
 	RoomService rooms.Service
 }
 
-// NewRoomUseCase constructs a new RoomUseCase instance.
 func NewRoomUseCase(roomService rooms.Service) *RoomUseCase {
 	return &RoomUseCase{RoomService: roomService}
 }
 
-// Create delegates room creation to the domain service.
 func (uc *RoomUseCase) Create(ctx context.Context, input rooms.CreateRoomInput) (*models.Room, error) {
 	return uc.RoomService.Create(ctx, input)
+}
+
+func (uc *RoomUseCase) AddMember(ctx context.Context, roomID, userID string, role models.RoomRole) error {
+	return uc.RoomService.AddMember(ctx, roomID, userID, role)
+}
+
+func (uc *RoomUseCase) RemoveMember(ctx context.Context, roomID, userID string) error {
+	return uc.RoomService.RemoveMember(ctx, roomID, userID)
+}
+
+func (uc *RoomUseCase) ListMembers(ctx context.Context, roomID string) ([]models.RoomMember, error) {
+	return uc.RoomService.ListMembers(ctx, roomID)
 }
