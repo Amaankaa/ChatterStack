@@ -39,7 +39,7 @@ func (h *AuthHandler) RegisterRoutes(group *gin.RouterGroup) {
 func (h *AuthHandler) register(c *gin.Context) {
 	var req struct {
 		Username string `json:"username"`
-		Email string `json:"email"`
+		Email    string `json:"email"`
 		Password string `json:"password"`
 	}
 	if err := c.ShouldBindJSON(&req); err != nil {
@@ -49,12 +49,12 @@ func (h *AuthHandler) register(c *gin.Context) {
 
 	user, err := h.authUC.Register(c.Request.Context(), auth.RegisterInput{
 		Username: req.Username,
-		Email: req.Email,
+		Email:    req.Email,
 		Password: req.Password,
 	})
 	if err != nil {
 		status, msg := mapAuthError(err)
-		if status == http.StatusInternalServerError{
+		if status == http.StatusInternalServerError {
 			respondInternalServerError(c, err)
 			return
 		}
@@ -67,7 +67,7 @@ func (h *AuthHandler) register(c *gin.Context) {
 
 func (h *AuthHandler) login(c *gin.Context) {
 	var req struct {
-		Email string `json:"email"`
+		Email    string `json:"email"`
 		Password string `json:"password"`
 	}
 	if err := c.ShouldBindJSON(&req); err != nil {
@@ -86,8 +86,8 @@ func (h *AuthHandler) login(c *gin.Context) {
 		return
 	}
 
-	c.JSON(http.StatusOK, tokenPayload {
-		AccessToken: tokens.AccessToken,
+	c.JSON(http.StatusOK, tokenPayload{
+		AccessToken:  tokens.AccessToken,
 		RefreshToken: tokens.RefreshToken,
 	})
 }
@@ -114,33 +114,33 @@ func (h *AuthHandler) refresh(c *gin.Context) {
 	}
 
 	c.JSON(http.StatusOK, tokenPayload{
-		AccessToken: tokens.AccessToken,
+		AccessToken:  tokens.AccessToken,
 		RefreshToken: tokens.RefreshToken,
 	})
 }
 
 func (h *AuthHandler) logout(c *gin.Context) {
-    var req struct {
-        UserID string `json:"user_id"`
-    }
-    if err := c.ShouldBindJSON(&req); err != nil {
-        respondBadRequest(c, "invalid JSON payload")
-        return
-    }
-    if req.UserID == "" {
-        respondBadRequest(c, "user_id is required")
-        return
-    }
+	var req struct {
+		UserID string `json:"user_id"`
+	}
+	if err := c.ShouldBindJSON(&req); err != nil {
+		respondBadRequest(c, "invalid JSON payload")
+		return
+	}
+	if req.UserID == "" {
+		respondBadRequest(c, "user_id is required")
+		return
+	}
 
-    if err := h.authUC.Logout(c.Request.Context(), req.UserID); err != nil {
-        status, msg := mapAuthError(err)
-        if status == http.StatusInternalServerError {
-            respondInternalServerError(c, err)
-            return
-        }
-        respondJSONError(c, status, msg)
-        return
-    }
+	if err := h.authUC.Logout(c.Request.Context(), req.UserID); err != nil {
+		status, msg := mapAuthError(err)
+		if status == http.StatusInternalServerError {
+			respondInternalServerError(c, err)
+			return
+		}
+		respondJSONError(c, status, msg)
+		return
+	}
 
-    c.Status(http.StatusNoContent)
+	c.Status(http.StatusNoContent)
 }

@@ -4,12 +4,16 @@ import (
 	"errors"
 	"log"
 	"net/http"
+	"strings"
 	"time"
 
 	"github.com/gin-gonic/gin"
 
 	"chatterstack/internal/domain/auth"
+	"chatterstack/internal/domain/messages"
 	"chatterstack/internal/domain/models"
+	"chatterstack/internal/domain/rooms"
+	"chatterstack/internal/domain/users"
 )
 
 type userPayload struct {
@@ -24,6 +28,39 @@ type userPayload struct {
 type tokenPayload struct {
 	AccessToken  string `json:"access_token"`
 	RefreshToken string `json:"refresh_token"`
+}
+
+type attachmentPayload struct {
+	ID        string `json:"id,omitempty"`
+	MessageID string `json:"message_id,omitempty"`
+	URL       string `json:"url"`
+	MimeType  string `json:"mime_type,omitempty"`
+	SizeBytes int64  `json:"size_bytes,omitempty"`
+}
+
+type messagePayload struct {
+	ID          string               `json:"id"`
+	RoomID      string               `json:"room_id"`
+	SenderID    string               `json:"sender_id"`
+	Content     string               `json:"content"`
+	Attachments []attachmentPayload  `json:"attachments,omitempty"`
+	Status      models.MessageStatus `json:"status"`
+	CreatedAt   time.Time            `json:"created_at"`
+}
+
+type roomPayload struct {
+	ID        string    `json:"id"`
+	Name      string    `json:"name"`
+	IsGroup   bool      `json:"is_group"`
+	CreatedBy string    `json:"created_by"`
+	CreatedAt time.Time `json:"created_at"`
+}
+
+type roomMemberPayload struct {
+	ID     string          `json:"id,omitempty"`
+	RoomID string          `json:"room_id,omitempty"`
+	UserID string          `json:"user_id"`
+	Role   models.RoomRole `json:"role"`
 }
 
 func toUserPayload(u *models.User) userPayload {
@@ -70,4 +107,109 @@ func mapAuthError(err error) (int, string) {
 	default:
 		return http.StatusInternalServerError, "internal server error"
 	}
+}
+
+func mapMessageError(err error) (int, string) {
+	switch {
+	case errors.Is(err, messages.ErrInvalidRoomID),
+		errors.Is(err, messages.ErrInvalidSenderID),
+		errors.Is(err, messages.ErrInvalidContent),
+		errors.Is(err, messages.ErrInvalidMessageID),
+		errors.Is(err, messages.ErrInvalidUserID):
+		return http.StatusBadRequest, err.Error()
+	default:
+		return http.StatusInternalServerError, "internal server error"
+	}
+}
+
+func mapRoomError(err error) (int, string) {
+	switch {
+	case errors.Is(err, rooms.ErrInvalidRoomName),
+		errors.Is(err, rooms.ErrInvalidCreatorID),
+		errors.Is(err, rooms.ErrInvalidMemberUser):
+		return http.StatusBadRequest, err.Error()
+	default:
+		if err != nil && strings.HasPrefix(err.Error(), "rooms:") {
+			return http.StatusBadRequest, err.Error()
+		}
+		return http.StatusInternalServerError, "internal server error"
+	}
+}
+
+func mapUserError(err error) (int, string) {
+	switch {
+	case errors.Is(err, users.ErrUserNotFound):
+		return http.StatusNotFound, err.Error()
+	default:
+		if err != nil && strings.HasPrefix(err.Error(), "users:") {
+			return http.StatusBadRequest, err.Error()
+		}
+		return http.StatusInternalServerError, "internal server error"
+	}
+}
+
+func toAttachmentPayloads(list []models.Attachment) []attachmentPayload {
+	if len(list) == 0 {
+		return nil
+	}
+	res := make([]attachmentPayload, 0, len(list))
+	for _, att := range list {
+		res = append(res, attachmentPayload{
+			ID:        att.ID,
+			MessageID: att.MessageID,
+			URL:       att.URL,
+			MimeType:  att.MimeType,
+			SizeBytes: att.SizeBytes,
+		})
+	}
+	return res
+}
+
+func toMessagePayload(msg models.Message) messagePayload {
+	return messagePayload{
+		ID:          msg.ID,
+		RoomID:      msg.RoomID,
+		SenderID:    msg.SenderID,
+		Content:     msg.Content,
+		Attachments: toAttachmentPayloads(msg.Attachments),
+		Status:      msg.Status,
+		CreatedAt:   msg.CreatedAt,
+	}
+}
+
+func toMessagePayloads(list []models.Message) []messagePayload {
+	if len(list) == 0 {
+		return []messagePayload{}
+	}
+	res := make([]messagePayload, 0, len(list))
+	for _, msg := range list {
+		res = append(res, toMessagePayload(msg))
+	}
+	return res
+}
+
+func toRoomPayload(room *models.Room) roomPayload {
+	return roomPayload{
+		ID:        room.ID,
+		Name:      room.Name,
+		IsGroup:   room.IsGroup,
+		CreatedBy: room.CreatedBy,
+		CreatedAt: room.CreatedAt,
+	}
+}
+
+func toRoomMemberPayloads(members []models.RoomMember) []roomMemberPayload {
+	if len(members) == 0 {
+		return []roomMemberPayload{}
+	}
+	res := make([]roomMemberPayload, 0, len(members))
+	for _, member := range members {
+		res = append(res, roomMemberPayload{
+			ID:     member.ID,
+			RoomID: member.RoomID,
+			UserID: member.UserID,
+			Role:   member.Role,
+		})
+	}
+	return res
 }
