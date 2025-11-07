@@ -63,3 +63,18 @@ func (r *MessageRepository) UpdateStatus(ctx context.Context, id string, status 
 	_, err := r.pool.Exec(ctx, `UPDATE messages SET status=$1 WHERE id=$2`, status, id)
 	return err
 }
+
+// UpsertReceipt records or updates a message receipt for a user.
+func (r *MessageRepository) UpsertReceipt(ctx context.Context, receipt *models.MessageReceipt) error {
+	if receipt.ID == "" {
+		receipt.ID = uuid.New().String()
+	}
+
+	_, err := r.pool.Exec(ctx,
+		`INSERT INTO message_receipts (id, message_id, user_id, status, seen_at)
+		VALUES ($1, $2, $3, $4, $5)
+		ON CONFLICT (message_id, user_id) DO UPDATE SET status = EXCLUDED.status, seen_at = EXCLUDED.seen_at`,
+		receipt.ID, receipt.MessageID, receipt.UserID, receipt.Status, receipt.SeenAt,
+	)
+	return err
+}

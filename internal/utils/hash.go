@@ -1,28 +1,32 @@
 package utils
 
 import (
-	"crypto/sha256"
-	"encoding/hex"
 	"errors"
+
+	"golang.org/x/crypto/bcrypt"
 )
 
-// HashPassword provides a placeholder hashing strategy.
+const passwordMinLength = 8
+
+// HashPassword applies bcrypt hashing with the default cost.
 func HashPassword(plain string) (string, error) {
-	if plain == "" {
-		return "", errors.New("password cannot be empty")
+	if len(plain) < passwordMinLength {
+		return "", errors.New("password must be at least 8 characters long")
 	}
-	checksum := sha256.Sum256([]byte(plain))
-	return hex.EncodeToString(checksum[:]), nil
+	hashed, err := bcrypt.GenerateFromPassword([]byte(plain), bcrypt.DefaultCost)
+	if err != nil {
+		return "", err
+	}
+	return string(hashed), nil
 }
 
-// CompareHashAndPassword compares a stored checksum with plaintext input.
+// CompareHashAndPassword verifies a plaintext password against a stored hash.
 func CompareHashAndPassword(hash, plain string) error {
-	expected, err := HashPassword(plain)
-	if err != nil {
-		return err
+	if hash == "" {
+		return errors.New("stored password hash cannot be empty")
 	}
-	if expected != hash {
-		return errors.New("password mismatch")
+	if len(plain) < passwordMinLength {
+		return errors.New("password must be at least 8 characters long")
 	}
-	return nil
+	return bcrypt.CompareHashAndPassword([]byte(hash), []byte(plain))
 }

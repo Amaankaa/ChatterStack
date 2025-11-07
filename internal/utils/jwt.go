@@ -1,13 +1,25 @@
 package utils
 
-import "errors"
+import (
+	"crypto/rand"
+	"encoding/base64"
+	"fmt"
+)
 
-// GenerateAccessToken is a placeholder for future JWT generation logic.
+// GenerateAccessToken returns a cryptographically random token string.
 func GenerateAccessToken(claims map[string]interface{}) (string, error) {
-	return "", errors.New("jwt generation not implemented")
+	return generateOpaqueToken("access", claims)
 }
 
-// GenerateRefreshToken is a placeholder for future refresh token logic.
+// GenerateRefreshToken returns a cryptographically random token string.
 func GenerateRefreshToken(claims map[string]interface{}) (string, error) {
-	return "", errors.New("jwt generation not implemented")
+	return generateOpaqueToken("refresh", claims)
+}
+
+func generateOpaqueToken(prefix string, _ map[string]interface{}) (string, error) {
+	buf := make([]byte, 32)
+	if _, err := rand.Read(buf); err != nil {
+		return "", err
+	}
+	return fmt.Sprintf("%s_%s", prefix, base64.RawURLEncoding.EncodeToString(buf)), nil
 }

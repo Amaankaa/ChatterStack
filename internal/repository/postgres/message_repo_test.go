@@ -69,3 +69,19 @@ func TestMessageRepository_UpdateStatus(t *testing.T) {
 	require.NoError(t, repo.UpdateStatus(ctx, "msg-1", models.MessageStatusRead))
 	require.NoError(t, mockPool.ExpectationsWereMet())
 }
+
+func TestMessageRepository_UpsertReceipt(t *testing.T) {
+	ctx := context.Background()
+	poolWrapper, mockPool := newPgxMockPool(t)
+	repo := NewMessageRepository(poolWrapper)
+
+	mockPool.ExpectExec("INSERT INTO message_receipts").
+		WithArgs(pgxmock.AnyArg(), "msg-1", "user-1", models.MessageStatusDelivered, pgxmock.AnyArg()).
+		WillReturnResult(pgxmock.NewResult("INSERT", 1))
+
+	receipt := &models.MessageReceipt{MessageID: "msg-1", UserID: "user-1", Status: models.MessageStatusDelivered}
+	require.NoError(t, repo.UpsertReceipt(ctx, receipt))
+	require.NotEmpty(t, receipt.ID)
+
+	require.NoError(t, mockPool.ExpectationsWereMet())
+}

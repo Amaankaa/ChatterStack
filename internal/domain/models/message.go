@@ -33,3 +33,12 @@ type Attachment struct {
 	MimeType  string
 	SizeBytes int64
 }
+
+// MessageReceipt tracks delivery/read acknowledgements for a message.
+type MessageReceipt struct {
+	ID        string
+	MessageID string
+	UserID    string
+	Status    MessageStatus
+	SeenAt    *time.Time
+}
