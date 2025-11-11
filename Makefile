@@ -1,4 +1,4 @@
-.PHONY: fmt air
+.PHONY: fmt air test
 
 fmt:
 	@echo "Formatting Go sources..."
@@ -7,3 +7,7 @@ fmt:
 air:
 	@echo "Starting Air dev server..."
 	@air -c air.toml
+
+test:
+	@echo "Running Go test suite..."
+	@go test ./...
