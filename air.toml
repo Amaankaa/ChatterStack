@@ -1,0 +1,26 @@
+root = "."
+tmp_dir = "tmp"
+
+[build]
+  cmd = "go build -o ./tmp/server ./cmd/server"
+  bin = "./tmp/server"
+  full_bin = "./tmp/server -mode api"
+  include_ext = ["go", "mod", "sum", "env", "yaml", "yml", "json", "sql"]
+  exclude_dir = ["tmp", "vendor", ".git"]
+  delay = 1000
+  stop_on_error = true
+
+[log]
+  level = "info"
+  color = true
+
+[color]
+  main = "cyan"
+  watcher = "yellow"
+  build = "green"
+  runner = "magenta"
+  app = "blue"
+
+[serve]
+  cmd = "./tmp/server -mode api"
+  delay = 500

@@ -1,5 +1,7 @@
 package websocket
 
+import "encoding/json"
+
 // EventType enumerates supported websocket events.
 type EventType string
 
@@ -17,4 +19,9 @@ const (
 type Event struct {
 	Type EventType   `json:"event"`
 	Data interface{} `json:"data"`
+}
+
+// Encode marshal the event into JSON for transport
+func (e Event) Encode() ([]byte, error) {
+	return json.Marshal(e)
 }

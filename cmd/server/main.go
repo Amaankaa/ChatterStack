@@ -25,6 +25,9 @@ import (
 	postgresrepo "chatterstack/internal/repository/postgres"
 	redisrepo "chatterstack/internal/repository/redis"
 	"chatterstack/internal/usecase"
+
+	wsdelivery "chatterstack/internal/delivery/websocket"
+	ws "github.com/gorilla/websocket"
 )
 
 func main() {
@@ -45,7 +48,9 @@ func main() {
 			log.Fatalf("api server error: %v", err)
 		}
 	case "websocket":
-		log.Println("WebSocket server bootstrap incomplete; implement hub startup in internal/delivery/websocket")
+		if err := startWebsocketServer(ctx, cfg); err != nil {
+			log.Fatalf("websocket server error: %v", err)
+		}
 	default:
 		log.Fatalf("unknown mode %q", *mode)
 	}
@@ -128,6 +133,81 @@ func startAPIServer(ctx context.Context, cfg config.Config) error {
 
 		if err := server.Shutdown(shutdownCtx); err != nil {
 			return fmt.Errorf("server shutdown: %w", err)
+		}
+		return nil
+	case err := <-errChan:
+		return err
+	}
+}
+
+func startWebsocketServer(ctx context.Context, cfg config.Config) error {
+	redisClient := redis.NewClient(&redis.Options{
+		Addr:     cfg.Redis.Addr,
+		Password: cfg.Redis.Password,
+	})
+	defer redisClient.Close()
+
+	if err := redisClient.Ping(ctx).Err(); err != nil {
+		return fmt.Errorf("ping redis: %w", err)
+	}
+
+	hub := wsdelivery.NewHub()
+	hubCtx, cancel := context.WithCancel(ctx)
+	defer cancel()
+
+	go hub.Run(hubCtx)
+
+	upgrader := ws.Upgrader{
+		ReadBufferSize:  1024,
+		WriteBufferSize: 1024,
+		CheckOrigin: func(r *http.Request) bool {
+			return true
+		},
+	}
+
+	http.HandleFunc("/ws", func(w http.ResponseWriter, r *http.Request) {
+		conn, err := upgrader.Upgrade(w, r, nil)
+		if err != nil {
+			log.Printf("websocket upgrade failed: %v", err)
+			return
+		}
+
+		userID := r.URL.Query().Get("user_id")
+		if userID == "" {
+			userID = "anonymous"
+		}
+		roomIDs := r.URL.Query()["room_id"]
+
+		client := wsdelivery.NewClient(conn, hub, userID, roomIDs)
+		hub.Register(client)
+
+		go client.WritePump()
+		client.ReadPump()
+	})
+
+	server := &http.Server{
+		Addr:         cfg.Websocket.Address(),
+		ReadTimeout:  15 * time.Second,
+		WriteTimeout: 15 * time.Second,
+		IdleTimeout:  60 * time.Second,
+	}
+
+	errChan := make(chan error, 1)
+
+	go func() {
+		log.Printf("Websocket server listening on %s", cfg.Websocket.Address())
+		if err := server.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
+			errChan <- err
+		}
+	}()
+
+	select {
+	case <-ctx.Done():
+		shutdownCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer cancel()
+
+		if err := server.Shutdown(shutdownCtx); err != nil {
+			return fmt.Errorf("websocket server shutdown: %w", err)
 		}
 		return nil
 	case err := <-errChan:
