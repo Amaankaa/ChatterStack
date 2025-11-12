@@ -27,6 +27,7 @@ import (
 	"chatterstack/internal/usecase"
 
 	wsdelivery "chatterstack/internal/delivery/websocket"
+
 	ws "github.com/gorilla/websocket"
 )
 
@@ -141,44 +142,86 @@ func startAPIServer(ctx context.Context, cfg config.Config) error {
 }
 
 func startWebsocketServer(ctx context.Context, cfg config.Config) error {
+	pgxCfg, err := pgxpool.ParseConfig(cfg.Postgres.DSN)
+	if err != nil {
+		return fmt.Errorf("parse postgres dsn: %w", err)
+	}
+	pool, err := pgxpool.NewWithConfig(ctx, pgxCfg)
+	if err != nil {
+		return fmt.Errorf("connect postgres: %w", err)
+	}
+	defer pool.Close()
+	if err := pool.Ping(ctx); err != nil {
+		return fmt.Errorf("ping postgres: %w", err)
+	}
+
 	redisClient := redis.NewClient(&redis.Options{
 		Addr:     cfg.Redis.Addr,
 		Password: cfg.Redis.Password,
 	})
 	defer redisClient.Close()
-
 	if err := redisClient.Ping(ctx).Err(); err != nil {
 		return fmt.Errorf("ping redis: %w", err)
 	}
 
+	userRepo := postgresrepo.NewUserRepository(pool)
+	roomRepo := postgresrepo.NewRoomRepository(pool)
+	messageRepo := postgresrepo.NewMessageRepository(pool)
+
+	cache := redisrepo.NewCache(redisClient)
+	pubsub := redisrepo.NewPubSub(redisClient)
+
+	authService := auth.NewService(userRepo, cache, cfg.JWT.AccessTTL, cfg.JWT.RefreshTTL)
+	roomService := rooms.NewService(roomRepo)
+	messageService := messages.NewService(messageRepo, pubsub)
+
+	authUC := usecase.NewAuthUseCase(authService)
+	roomUC := usecase.NewRoomUseCase(roomService)
+	_ = usecase.NewMessageUseCase(messageService) // keep handy when broadcasting via pub/sub later
+
 	hub := wsdelivery.NewHub()
 	hubCtx, cancel := context.WithCancel(ctx)
 	defer cancel()
-
 	go hub.Run(hubCtx)
 
 	upgrader := ws.Upgrader{
 		ReadBufferSize:  1024,
 		WriteBufferSize: 1024,
-		CheckOrigin: func(r *http.Request) bool {
-			return true
-		},
+		CheckOrigin:     func(*http.Request) bool { return true },
 	}
 
 	http.HandleFunc("/ws", func(w http.ResponseWriter, r *http.Request) {
+		token := wsdelivery.ExtractBearerToken(r.Header.Get("Authorization"))
+		if token == "" {
+			http.Error(w, "missing bearer token", http.StatusUnauthorized)
+			return
+		}
+
+		userID, err := authUC.ValidateAccessToken(r.Context(), token)
+		if err != nil {
+			http.Error(w, "invalid access token", http.StatusUnauthorized)
+			return
+		}
+
+		rawRooms := r.URL.Query()["room_id"]
+		if len(rawRooms) == 0 {
+			http.Error(w, "room_id is required", http.StatusBadRequest)
+			return
+		}
+
+		allowed := wsdelivery.FilterAuthorizedRooms(r.Context(), roomUC, userID, rawRooms)
+		if len(allowed) == 0 {
+			http.Error(w, "no authorized rooms", http.StatusForbidden)
+			return
+		}
+
 		conn, err := upgrader.Upgrade(w, r, nil)
 		if err != nil {
 			log.Printf("websocket upgrade failed: %v", err)
 			return
 		}
 
-		userID := r.URL.Query().Get("user_id")
-		if userID == "" {
-			userID = "anonymous"
-		}
-		roomIDs := r.URL.Query()["room_id"]
-
-		client := wsdelivery.NewClient(conn, hub, userID, roomIDs)
+		client := wsdelivery.NewClient(conn, hub, userID, allowed)
 		hub.Register(client)
 
 		go client.WritePump()

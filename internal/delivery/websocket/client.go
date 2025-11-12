@@ -5,14 +5,16 @@ import (
 	"time"
 
 	"github.com/gorilla/websocket"
+	"golang.org/x/time/rate"
 )
 
 // Client represents a connected websocket participant.
 type Client struct {
-	Conn   *websocket.Conn
-	Send   chan []byte
-	UserID string
-	Rooms  []string
+	Conn    *websocket.Conn
+	Send    chan []byte
+	UserID  string
+	Rooms   []string
+	limiter *rate.Limiter
 
 	hub *Hub
 }
@@ -27,11 +29,12 @@ const (
 // NewClient wraps a websocket connection and attaches it to the hub.
 func NewClient(conn *websocket.Conn, hub *Hub, userID string, rooms []string) *Client {
 	return &Client{
-		Conn:   conn,
-		Send:   make(chan []byte, 256),
-		UserID: userID,
-		Rooms:  rooms,
-		hub:    hub,
+		Conn:    conn,
+		Send:    make(chan []byte, 256),
+		UserID:  userID,
+		Rooms:   rooms,
+		limiter: rate.NewLimiter(rate.Every(200*time.Millisecond), 5),
+		hub:     hub,
 	}
 }
 
@@ -56,6 +59,11 @@ func (c *Client) ReadPump() {
 				log.Printf("websocket: read error: %v", err)
 			}
 			break
+		}
+
+		if c.limiter != nil && !c.limiter.Allow() {
+			log.Printf("websocket: rate limit exceeded for user %s", c.UserID)
+			continue
 		}
 
 		//For now, treat every inbound payload as a broadcast to the client's rooms.

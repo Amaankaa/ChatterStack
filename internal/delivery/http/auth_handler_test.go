@@ -26,6 +26,7 @@ type stubAuthService struct {
 	loginFn    func(context.Context, string, string) (*auth.TokenPair, error)
 	refreshFn  func(context.Context, string) (*auth.TokenPair, error)
 	logoutFn   func(context.Context, string) error
+	validateFn func(context.Context, string) (string, error)
 }
 
 func (s *stubAuthService) Register(ctx context.Context, input auth.RegisterInput) (*models.User, error) {
@@ -54,6 +55,13 @@ func (s *stubAuthService) Logout(ctx context.Context, userID string) error {
 		return s.logoutFn(ctx, userID)
 	}
 	return nil
+}
+
+func (s *stubAuthService) ValidateAccessToken(ctx context.Context, token string) (string, error) {
+	if s.validateFn != nil {
+		return s.validateFn(ctx, token)
+	}
+	return "", nil
 }
 
 func newAuthHandlerWithStub(stub *stubAuthService) *AuthHandler {

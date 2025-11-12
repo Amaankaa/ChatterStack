@@ -33,3 +33,7 @@ func (uc *AuthUseCase) Refresh(ctx context.Context, refreshToken string) (*auth.
 func (uc *AuthUseCase) Logout(ctx context.Context, userID string) error {
 	return uc.AuthService.Logout(ctx, userID)
 }
+
+func (uc *AuthUseCase) ValidateAccessToken(ctx context.Context, accessToken string) (string, error) {
+	return uc.AuthService.ValidateAccessToken(ctx, accessToken)
+}

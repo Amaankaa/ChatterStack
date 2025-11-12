@@ -18,6 +18,7 @@ var (
 	ErrEmailAlreadyUsed    = errors.New("auth: email already in use")
 	ErrInvalidCredentials  = errors.New("auth: invalid email or password")
 	ErrInvalidRefreshToken = errors.New("auth: invalid refresh token")
+	ErrInvalidAccessToken  = errors.New("auth: invalid access token")
 	ErrMissingUsername     = errors.New("auth: username is required")
 	ErrMissingEmail        = errors.New("auth: email is required")
 	ErrMissingPassword     = errors.New("auth: password is required")
@@ -210,30 +211,68 @@ func (s *service) issueTokens(ctx context.Context, user *models.User) (*TokenPai
 		_ = s.cache.Delete(ctx, sessionKey(user.ID))
 		return nil, err
 	}
+	if err := s.cache.Set(ctx, accessKey(accessToken), user.ID, s.accessTTL); err != nil {
+		_ = s.cache.Delete(ctx, sessionKey(user.ID))
+		_ = s.cache.Delete(ctx, refreshKey(refreshToken))
+		_ = s.cache.Delete(ctx, accessKey(accessToken))
+		return nil, err
+	}
 
 	return &TokenPair{AccessToken: accessToken, RefreshToken: refreshToken}, nil
 }
 
-func (s *service) invalidateSession(ctx context.Context, userID string) error {
-	token, err := s.cache.Get(ctx, sessionKey(userID))
+func (s *service) ValidateAccessToken(ctx context.Context, accessToken string) (string, error) {
+	token := strings.TrimSpace(accessToken)
+	if token == "" {
+		return "", ErrInvalidAccessToken
+	}
+
+	userID, err := s.cache.Get(ctx, accessKey(token))
 	if err != nil {
 		if errors.Is(err, redisadapter.ErrCacheMiss) {
-			return nil
+			return "", ErrInvalidAccessToken
 		}
+		return "", err
+	}
+
+	return userID, nil
+}
+
+
+func (s *service) invalidateSession(ctx context.Context, userID string) error {
+	token, err := s.cache.Get(ctx, sessionKey(userID))
+	if err != nil && !errors.Is(err, redisadapter.ErrCacheMiss) {
 		return err
 	}
 
-	if err := s.cache.Delete(ctx, sessionKey(userID)); err != nil {
+	if err == nil {
+		_ = s.cache.Delete(ctx, sessionKey(userID))
+		_ = s.cache.Delete(ctx, refreshKey(token))
+	}
+
+	accessToken, err := s.cache.Get(ctx, accessSessionKey(userID))
+	if err != nil && !errors.Is(err, redisadapter.ErrCacheMiss) {
 		return err
 	}
-	if err := s.cache.Delete(ctx, refreshKey(token)); err != nil {
-		return err
+
+	if err == nil {
+		_ = s.cache.Delete(ctx, accessSessionKey(userID))
+		_ = s.cache.Delete(ctx, accessKey(accessToken))
 	}
+
 	return nil
 }
 
 func sessionKey(userID string) string {
 	return fmt.Sprintf("auth:session:%s", userID)
+}
+
+func accessKey(token string) string {
+	return fmt.Sprintf("auth:access:%s", token)
+}
+
+func accessSessionKey(userID string) string {
+	return fmt.Sprintf("auth:access-session:%s", userID)
 }
 
 func refreshKey(token string) string {

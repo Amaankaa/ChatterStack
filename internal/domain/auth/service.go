@@ -12,6 +12,7 @@ type Service interface {
 	Login(ctx context.Context, email, password string) (*TokenPair, error)
 	Refresh(ctx context.Context, refreshToken string) (*TokenPair, error)
 	Logout(ctx context.Context, userID string) error
+	ValidateAccessToken(ctx context.Context, accessToken string) (string, error)
 }
 
 // RegisterInput captures the minimum information required for signup.
