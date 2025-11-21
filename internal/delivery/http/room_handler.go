@@ -2,6 +2,7 @@ package http
 
 import (
 	"net/http"
+	"strconv"
 
 	"github.com/gin-gonic/gin"
 
@@ -22,10 +23,42 @@ func NewRoomHandler(roomUC *usecase.RoomUseCase) *RoomHandler {
 
 // RegisterRoutes attaches room handlers to the provided router group.
 func (h *RoomHandler) RegisterRoutes(group *gin.RouterGroup) {
+	group.GET("/", h.search)
 	group.POST("/", h.create)
 	group.POST("/:roomID/members", h.addMember)
 	group.DELETE("/:roomID/members/:userID", h.removeMember)
 	group.GET("/:roomID/members", h.listMembers)
+}
+
+func (h *RoomHandler) search(c *gin.Context) {
+	userID, ok := currentUserID(c)
+	if !ok {
+		respondJSONError(c, http.StatusUnauthorized, "unauthorized")
+		return
+	}
+
+	limit := 0
+	if v := c.Query("limit"); v != "" {
+		parsed, err := strconv.Atoi(v)
+		if err != nil || parsed <= 0 {
+			respondBadRequest(c, "invalid limit parameter")
+			return
+		}
+		limit = parsed
+	}
+
+	rooms, err := h.roomUC.Search(c.Request.Context(), userID, c.Query("q"), limit)
+	if err != nil {
+		status, msg := mapRoomError(err)
+		if status == http.StatusInternalServerError {
+			respondInternalServerError(c, err)
+			return
+		}
+		respondJSONError(c, status, msg)
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{"rooms": toRoomPayloads(rooms)})
 }
 
 func (h *RoomHandler) create(c *gin.Context) {

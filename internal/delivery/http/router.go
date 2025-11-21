@@ -24,5 +24,8 @@ func RegisterRoutes(router *gin.Engine, svc Services) {
 
 	NewUserHandler(svc.User).RegisterRoutes(protected.Group("/users"))
 	NewRoomHandler(svc.Room).RegisterRoutes(protected.Group("/rooms"))
-	NewMessageHandler(svc.Message).RegisterRoutes(protected.Group("/rooms"))
+	messageHandler := NewMessageHandler(svc.Message)
+	messageGroup := protected.Group("/rooms")
+	messageHandler.RegisterRoutes(messageGroup)
+	messageHandler.RegisterSearchRoutes(protected.Group("/messages"))
 }

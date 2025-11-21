@@ -13,6 +13,12 @@ var (
 	ErrInvalidRoomName   = errors.New("rooms: name is required")
 	ErrInvalidCreatorID  = errors.New("rooms: creator id is required")
 	ErrInvalidMemberUser = errors.New("rooms: member user id is required")
+	ErrInvalidUserID     = errors.New("rooms: user id is required")
+)
+
+const (
+	defaultSearchLimit = 20
+	maxSearchLimit     = 100
 )
 
 // roomRepository outlines the persistence operations needed by the domain service.
@@ -21,6 +27,7 @@ type roomRepository interface {
 	AddMember(ctx context.Context, member models.RoomMember) error
 	RemoveMember(ctx context.Context, roomID, userID string) error
 	ListMembers(ctx context.Context, roomID string) ([]models.RoomMember, error)
+	Search(ctx context.Context, userID, query string, limit int) ([]models.Room, error)
 }
 
 type service struct {
@@ -86,6 +93,23 @@ func (s *service) ListMembers(ctx context.Context, roomID string) ([]models.Room
 		return nil, errors.New("rooms: room id is required")
 	}
 	return s.repo.ListMembers(ctx, roomID)
+}
+
+func (s *service) Search(ctx context.Context, userID, query string, limit int) ([]models.Room, error) {
+	userID = strings.TrimSpace(userID)
+	if userID == "" {
+		return nil, ErrInvalidUserID
+	}
+	query = strings.TrimSpace(query)
+
+	if limit <= 0 {
+		limit = defaultSearchLimit
+	}
+	if limit > maxSearchLimit {
+		limit = maxSearchLimit
+	}
+
+	return s.repo.Search(ctx, userID, query, limit)
 }
 
 func buildMembers(input CreateRoomInput) []models.RoomMember {

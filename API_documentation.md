@@ -131,6 +131,16 @@ All non-auth endpoints require an `Authorization: Bearer {access_token}` header 
   - `204 No Content`: Member removed.
   - `404 Not Found`: Member/room missing.
 
+### Search Rooms
+- **GET** `/rooms?q={query}&limit={limit}`
+- **Description:** Lists rooms the caller belongs to, optionally filtered by a partial name match.
+- **Query Parameters:**
+  - `q` *(optional)*: Substring to match on room names.
+  - `limit` *(optional)*: Maximum number of results (default 20, max 100).
+- **Responses:**
+  - `200 OK`: `{ "rooms": [...] }`.
+  - `400 Bad Request`: Invalid limit or other validation errors.
+
 
 ## Message Endpoints (Protected)
 
@@ -172,6 +182,17 @@ All message endpoints use the authenticated user ID from the bearer token.
 - **Responses:**
   - `204 No Content`: Read receipt stored.
   - `400 Bad Request`: Invalid message ID/user state.
+
+### Search Messages
+- **GET** `/messages/search?q={query}&room_id={roomID}&limit={limit}`
+- **Description:** Searches message content visible to the caller. Optionally filter to a single room.
+- **Query Parameters:**
+  - `q` *(required)*: Case-insensitive substring for message content.
+  - `room_id` *(optional)*: Restrict search to a room.
+  - `limit` *(optional)*: Maximum results (default 50, max 100).
+- **Responses:**
+  - `200 OK`: `{ "messages": [...] }`.
+  - `400 Bad Request`: Missing `q` or invalid parameters.
 
 
 ## WebSocket Gateway

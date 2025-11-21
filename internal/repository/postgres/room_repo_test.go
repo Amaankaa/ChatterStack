@@ -3,6 +3,7 @@ package postgres
 import (
 	"context"
 	"testing"
+	"time"
 
 	pgxmock "github.com/pashagolub/pgxmock/v3"
 	"github.com/stretchr/testify/require"
@@ -84,6 +85,28 @@ func TestRoomRepository_ListMembers(t *testing.T) {
 	require.Len(t, members, 2)
 	require.Equal(t, "user-1", members[0].UserID)
 	require.Equal(t, models.RoomRoleMember, members[1].Role)
+
+	require.NoError(t, mockPool.ExpectationsWereMet())
+}
+
+func TestRoomRepository_Search(t *testing.T) {
+	ctx := context.Background()
+	poolWrapper, mockPool := newPgxMockPool(t)
+	repo := NewRoomRepository(poolWrapper)
+
+	createdAt := time.Date(2025, 11, 21, 10, 0, 0, 0, time.UTC)
+	rows := pgxmock.NewRows([]string{"id", "name", "is_group", "created_by", "created_at"}).
+		AddRow("room-1", "Daily Standup", true, "user-1", createdAt)
+
+	mockPool.ExpectQuery("SELECT r.id, r.name, r.is_group, r.created_by, r.created_at").
+		WithArgs("user-1", "daily", 5).
+		WillReturnRows(rows)
+
+	result, err := repo.Search(ctx, "user-1", "daily", 5)
+	require.NoError(t, err)
+	require.Len(t, result, 1)
+	require.Equal(t, "room-1", result[0].ID)
+	require.Equal(t, createdAt, result[0].CreatedAt)
 
 	require.NoError(t, mockPool.ExpectationsWereMet())
 }

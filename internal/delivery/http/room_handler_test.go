@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -16,6 +17,7 @@ import (
 	"chatterstack/internal/domain/models"
 	"chatterstack/internal/domain/rooms"
 	"chatterstack/internal/usecase"
+	"chatterstack/pkg/middleware"
 )
 
 type mockRoomService struct {
@@ -46,6 +48,14 @@ func (m *mockRoomService) ListMembers(ctx context.Context, roomID string) ([]mod
 	return nil, args.Error(1)
 }
 
+func (m *mockRoomService) Search(ctx context.Context, userID, query string, limit int) ([]models.Room, error) {
+	args := m.Called(ctx, userID, query, limit)
+	if res := args.Get(0); res != nil {
+		return res.([]models.Room), args.Error(1)
+	}
+	return nil, args.Error(1)
+}
+
 type RoomHandlerTestSuite struct {
 	suite.Suite
 
@@ -59,11 +69,54 @@ func (s *RoomHandlerTestSuite) SetupTest() {
 
 	s.router = gin.New()
 	routes := s.router.Group("/rooms")
+	routes.Use(func(c *gin.Context) {
+		c.Set(middleware.UserIDContextKey, "user-1")
+	})
 	h.RegisterRoutes(routes)
 }
 
 func (s *RoomHandlerTestSuite) TearDownTest() {
 	s.service.AssertExpectations(s.T())
+}
+
+func (s *RoomHandlerTestSuite) TestSearchSuccess() {
+	roomsResult := []models.Room{{ID: "room-1", Name: "Daily", CreatedBy: "user-1", CreatedAt: time.Unix(0, 0)}}
+	s.service.On("Search", mock.Anything, "user-1", "daily", 5).Return(roomsResult, nil).Once()
+
+	req := httptest.NewRequest(http.MethodGet, "/rooms/?q=daily&limit=5", nil)
+	res := httptest.NewRecorder()
+
+	s.router.ServeHTTP(res, req)
+
+	s.Equal(http.StatusOK, res.Code)
+
+	var payload struct {
+		Rooms []roomPayload `json:"rooms"`
+	}
+	s.Require().NoError(json.Unmarshal(res.Body.Bytes(), &payload))
+	s.Len(payload.Rooms, 1)
+	s.Equal("room-1", payload.Rooms[0].ID)
+}
+
+func (s *RoomHandlerTestSuite) TestSearchInvalidLimit() {
+	req := httptest.NewRequest(http.MethodGet, "/rooms/?limit=abc", nil)
+	res := httptest.NewRecorder()
+
+	s.router.ServeHTTP(res, req)
+
+	s.Equal(http.StatusBadRequest, res.Code)
+}
+
+func (s *RoomHandlerTestSuite) TestSearchServiceError() {
+	s.service.On("Search", mock.Anything, "user-1", "", 0).Return(([]models.Room)(nil), errors.New("rooms: unexpected error")).Once()
+
+	req := httptest.NewRequest(http.MethodGet, "/rooms/", nil)
+	res := httptest.NewRecorder()
+
+	s.router.ServeHTTP(res, req)
+
+	s.Equal(http.StatusBadRequest, res.Code)
+	s.Contains(res.Body.String(), "rooms: unexpected error")
 }
 
 func (s *RoomHandlerTestSuite) TestCreateSuccess() {

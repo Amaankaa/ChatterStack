@@ -13,6 +13,7 @@ import (
 
 const (
 	defaultListLimit = 50
+	maxSearchLimit   = 100
 )
 
 var (
@@ -21,6 +22,7 @@ var (
 	ErrInvalidContent   = errors.New("messages: content or attachments are required")
 	ErrInvalidMessageID = errors.New("messages: message id is required")
 	ErrInvalidUserID    = errors.New("messages: user id is required")
+	ErrInvalidSearch    = errors.New("messages: search query is required")
 )
 
 // messageRepository outlines the persistence operations needed by the domain service.
@@ -29,6 +31,7 @@ type messageRepository interface {
 	ListByRoom(ctx context.Context, roomID string, limit, offset int) ([]models.Message, error)
 	UpdateStatus(ctx context.Context, id string, status models.MessageStatus) error
 	UpsertReceipt(ctx context.Context, receipt *models.MessageReceipt) error
+	Search(ctx context.Context, userID, roomID, query string, limit int) ([]models.Message, error)
 }
 
 // publisher emits events to interested subscribers (e.g. via Redis pub/sub).
@@ -125,6 +128,28 @@ func (s *service) MarkRead(ctx context.Context, messageID, userID string) error 
 		return err
 	}
 	return s.repo.UpdateStatus(ctx, messageID, models.MessageStatusRead)
+}
+
+func (s *service) Search(ctx context.Context, userID, roomID, query string, limit int) ([]models.Message, error) {
+	userID = strings.TrimSpace(userID)
+	if userID == "" {
+		return nil, ErrInvalidUserID
+	}
+
+	query = strings.TrimSpace(query)
+	if query == "" {
+		return nil, ErrInvalidSearch
+	}
+
+	roomID = strings.TrimSpace(roomID)
+	if limit <= 0 {
+		limit = defaultListLimit
+	}
+	if limit > maxSearchLimit {
+		limit = maxSearchLimit
+	}
+
+	return s.repo.Search(ctx, userID, roomID, query, limit)
 }
 
 func roomChannel(roomID string) string {

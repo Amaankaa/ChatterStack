@@ -12,6 +12,7 @@ type Service interface {
 	ListByRoom(ctx context.Context, roomID string, page, limit int) ([]models.Message, error)
 	MarkDelivered(ctx context.Context, messageID, userID string) error
 	MarkRead(ctx context.Context, messageID, userID string) error
+	Search(ctx context.Context, userID, roomID, query string, limit int) ([]models.Message, error)
 }
 
 // SendMessageInput captures the request payload to produce a message entry.

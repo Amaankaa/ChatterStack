@@ -30,3 +30,7 @@ func (uc *MessageUseCase) MarkDelivered(ctx context.Context, messageID, userID s
 func (uc *MessageUseCase) MarkRead(ctx context.Context, messageID, userID string) error {
 	return uc.MessageService.MarkRead(ctx, messageID, userID)
 }
+
+func (uc *MessageUseCase) Search(ctx context.Context, userID, roomID, query string, limit int) ([]models.Message, error) {
+	return uc.MessageService.Search(ctx, userID, roomID, query, limit)
+}

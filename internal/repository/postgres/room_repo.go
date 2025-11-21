@@ -88,3 +88,28 @@ func (r *RoomRepository) ListMembers(ctx context.Context, roomID string) ([]mode
 	}
 	return members, rows.Err()
 }
+
+func (r *RoomRepository) Search(ctx context.Context, userID, query string, limit int) ([]models.Room, error) {
+	rows, err := r.pool.Query(ctx,
+		`SELECT r.id, r.name, r.is_group, r.created_by, r.created_at
+		FROM rooms r
+		JOIN room_members m ON r.id = m.room_id
+		WHERE m.user_id = $1 AND ($2 = '' OR r.name ILIKE '%' || $2 || '%')
+		ORDER BY r.created_at DESC
+		LIMIT $3`, userID, query, limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	rooms := make([]models.Room, 0)
+	for rows.Next() {
+		var room models.Room
+		if err := rows.Scan(&room.ID, &room.Name, &room.IsGroup, &room.CreatedBy, &room.CreatedAt); err != nil {
+			return nil, err
+		}
+		rooms = append(rooms, room)
+	}
+
+	return rooms, rows.Err()
+}

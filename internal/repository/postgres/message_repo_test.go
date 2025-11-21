@@ -85,3 +85,25 @@ func TestMessageRepository_UpsertReceipt(t *testing.T) {
 
 	require.NoError(t, mockPool.ExpectationsWereMet())
 }
+
+func TestMessageRepository_Search(t *testing.T) {
+	ctx := context.Background()
+	poolWrapper, mockPool := newPgxMockPool(t)
+	repo := NewMessageRepository(poolWrapper)
+
+	created := time.Now().UTC()
+	rows := pgxmock.NewRows([]string{"id", "room_id", "sender_id", "content", "status", "created_at"}).
+		AddRow("m1", "room-1", "user-2", "daily sync", models.MessageStatusSent, created)
+
+	mockPool.ExpectQuery(`SELECT m.id, m.room_id, m.sender_id, m.content, m.status, m.created_at`).
+		WithArgs("user-1", "room-1", "daily", 10).
+		WillReturnRows(rows)
+
+	msgs, err := repo.Search(ctx, "user-1", "room-1", "daily", 10)
+	require.NoError(t, err)
+	require.Len(t, msgs, 1)
+	require.Equal(t, "m1", msgs[0].ID)
+	require.Equal(t, created, msgs[0].CreatedAt)
+
+	require.NoError(t, mockPool.ExpectationsWereMet())
+}

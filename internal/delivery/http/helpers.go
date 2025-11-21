@@ -14,6 +14,7 @@ import (
 	"chatterstack/internal/domain/models"
 	"chatterstack/internal/domain/rooms"
 	"chatterstack/internal/domain/users"
+	"chatterstack/pkg/middleware"
 )
 
 type userPayload struct {
@@ -115,7 +116,8 @@ func mapMessageError(err error) (int, string) {
 		errors.Is(err, messages.ErrInvalidSenderID),
 		errors.Is(err, messages.ErrInvalidContent),
 		errors.Is(err, messages.ErrInvalidMessageID),
-		errors.Is(err, messages.ErrInvalidUserID):
+		errors.Is(err, messages.ErrInvalidUserID),
+		errors.Is(err, messages.ErrInvalidSearch):
 		return http.StatusBadRequest, err.Error()
 	default:
 		return http.StatusInternalServerError, "internal server error"
@@ -126,7 +128,8 @@ func mapRoomError(err error) (int, string) {
 	switch {
 	case errors.Is(err, rooms.ErrInvalidRoomName),
 		errors.Is(err, rooms.ErrInvalidCreatorID),
-		errors.Is(err, rooms.ErrInvalidMemberUser):
+		errors.Is(err, rooms.ErrInvalidMemberUser),
+		errors.Is(err, rooms.ErrInvalidUserID):
 		return http.StatusBadRequest, err.Error()
 	default:
 		if err != nil && strings.HasPrefix(err.Error(), "rooms:") {
@@ -212,4 +215,27 @@ func toRoomMemberPayloads(members []models.RoomMember) []roomMemberPayload {
 		})
 	}
 	return res
+}
+
+func toRoomPayloads(list []models.Room) []roomPayload {
+	if len(list) == 0 {
+		return []roomPayload{}
+	}
+	res := make([]roomPayload, 0, len(list))
+	for i := range list {
+		res = append(res, toRoomPayload(&list[i]))
+	}
+	return res
+}
+
+func currentUserID(c *gin.Context) (string, bool) {
+	value, ok := c.Get(middleware.UserIDContextKey)
+	if !ok {
+		return "", false
+	}
+	userID, ok := value.(string)
+	if !ok || strings.TrimSpace(userID) == "" {
+		return "", false
+	}
+	return userID, true
 }

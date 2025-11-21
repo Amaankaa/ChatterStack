@@ -3,13 +3,13 @@ package http
 import (
 	"net/http"
 	"strconv"
+	"strings"
 
 	"github.com/gin-gonic/gin"
 
 	"chatterstack/internal/domain/messages"
 	"chatterstack/internal/domain/models"
 	"chatterstack/internal/usecase"
-	"chatterstack/pkg/middleware"
 )
 
 // MessageHandler wires REST endpoints for message retrieval and creation.
@@ -28,6 +28,11 @@ func (h *MessageHandler) RegisterRoutes(group *gin.RouterGroup) {
 	group.POST("/:roomID/messages", h.send)
 	group.POST("/:roomID/messages/:messageID/deliver", h.markDelivered)
 	group.POST("/:roomID/messages/:messageID/read", h.markRead)
+}
+
+// RegisterSearchRoutes exposes message discovery endpoints.
+func (h *MessageHandler) RegisterSearchRoutes(group *gin.RouterGroup) {
+	group.GET("/search", h.search)
 }
 
 func (h *MessageHandler) send(c *gin.Context) {
@@ -143,6 +148,43 @@ func (h *MessageHandler) markRead(c *gin.Context) {
 	c.Status(http.StatusNoContent)
 }
 
+func (h *MessageHandler) search(c *gin.Context) {
+	userID, ok := currentUserID(c)
+	if !ok {
+		respondJSONError(c, http.StatusUnauthorized, "unauthorized")
+		return
+	}
+
+	query := strings.TrimSpace(c.Query("q"))
+	if query == "" {
+		respondBadRequest(c, "query parameter q is required")
+		return
+	}
+
+	limit := 0
+	if v := c.Query("limit"); v != "" {
+		parsed, err := strconv.Atoi(v)
+		if err != nil || parsed <= 0 {
+			respondBadRequest(c, "invalid limit parameter")
+			return
+		}
+		limit = parsed
+	}
+
+	messagesList, err := h.messageUC.Search(c.Request.Context(), userID, c.Query("room_id"), query, limit)
+	if err != nil {
+		status, msg := mapMessageError(err)
+		if status == http.StatusInternalServerError {
+			respondInternalServerError(c, err)
+			return
+		}
+		respondJSONError(c, status, msg)
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{"messages": toMessagePayloads(messagesList)})
+}
+
 func parsePagination(c *gin.Context) (int, int, bool) {
 	page := 1
 	limit := 0
@@ -161,16 +203,4 @@ func parsePagination(c *gin.Context) (int, int, bool) {
 		limit = l
 	}
 	return page, limit, true
-}
-
-func currentUserID(c *gin.Context) (string, bool) {
-	value, ok := c.Get(middleware.UserIDContextKey)
-	if !ok {
-		return "", false
-	}
-	userID, ok := value.(string)
-	if !ok || userID == "" {
-		return "", false
-	}
-	return userID, true
 }

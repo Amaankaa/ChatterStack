@@ -30,3 +30,7 @@ func (uc *RoomUseCase) RemoveMember(ctx context.Context, roomID, userID string) 
 func (uc *RoomUseCase) ListMembers(ctx context.Context, roomID string) ([]models.RoomMember, error) {
 	return uc.RoomService.ListMembers(ctx, roomID)
 }
+
+func (uc *RoomUseCase) Search(ctx context.Context, userID, query string, limit int) ([]models.Room, error) {
+	return uc.RoomService.Search(ctx, userID, query, limit)
+}

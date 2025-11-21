@@ -78,3 +78,29 @@ func (r *MessageRepository) UpsertReceipt(ctx context.Context, receipt *models.M
 	)
 	return err
 }
+
+func (r *MessageRepository) Search(ctx context.Context, userID, roomID, query string, limit int) ([]models.Message, error) {
+	rows, err := r.pool.Query(ctx,
+		`SELECT m.id, m.room_id, m.sender_id, m.content, m.status, m.created_at
+		FROM messages m
+		JOIN room_members rm ON m.room_id = rm.room_id
+		WHERE rm.user_id = $1 AND ($2 = '' OR m.room_id = $2)
+		AND m.content ILIKE '%' || $3 || '%'
+		ORDER BY m.created_at DESC
+		LIMIT $4`, userID, roomID, query, limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var msgs []models.Message
+	for rows.Next() {
+		var m models.Message
+		if err := rows.Scan(&m.ID, &m.RoomID, &m.SenderID, &m.Content, &m.Status, &m.CreatedAt); err != nil {
+			return nil, err
+		}
+		msgs = append(msgs, m)
+	}
+
+	return msgs, rows.Err()
+}

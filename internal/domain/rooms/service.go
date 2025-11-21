@@ -12,6 +12,7 @@ type Service interface {
 	AddMember(ctx context.Context, roomID, userID string, role models.RoomRole) error
 	RemoveMember(ctx context.Context, roomID, userID string) error
 	ListMembers(ctx context.Context, roomID string) ([]models.RoomMember, error)
+	Search(ctx context.Context, userID, query string, limit int) ([]models.Room, error)
 }
 
 // CreateRoomInput encapsulates attributes required to create a room.

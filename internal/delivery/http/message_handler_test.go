@@ -52,6 +52,14 @@ func (m *mockMessageService) MarkRead(ctx context.Context, messageID, userID str
 	return args.Error(0)
 }
 
+func (m *mockMessageService) Search(ctx context.Context, userID, roomID, query string, limit int) ([]models.Message, error) {
+	args := m.Called(ctx, userID, roomID, query, limit)
+	if res := args.Get(0); res != nil {
+		return res.([]models.Message), args.Error(1)
+	}
+	return nil, args.Error(1)
+}
+
 type MessageHandlerTestSuite struct {
 	suite.Suite
 
@@ -70,8 +78,10 @@ func (s *MessageHandlerTestSuite) SetupTest() {
 		c.Set(middleware.UserIDContextKey, "user-1")
 		c.Next()
 	})
-	routes := s.router.Group("/rooms")
-	s.handler.RegisterRoutes(routes)
+	roomsGroup := s.router.Group("/rooms")
+	s.handler.RegisterRoutes(roomsGroup)
+	searchGroup := s.router.Group("/messages")
+	s.handler.RegisterSearchRoutes(searchGroup)
 }
 
 func (s *MessageHandlerTestSuite) TearDownTest() {
@@ -250,6 +260,48 @@ func (s *MessageHandlerTestSuite) TestMarkReadDomainError() {
 
 	s.Equal(http.StatusBadRequest, res.Code)
 	s.Contains(res.Body.String(), messages.ErrInvalidUserID.Error())
+}
+
+func (s *MessageHandlerTestSuite) TestSearchSuccess() {
+	created := time.Date(2025, 11, 21, 12, 0, 0, 0, time.UTC)
+	s.service.On("Search", mock.Anything, "user-1", "room-1", "daily", 10).
+		Return([]models.Message{{ID: "msg-1", RoomID: "room-1", SenderID: "user-2", Content: "daily update", CreatedAt: created}}, nil).Once()
+
+	req := httptest.NewRequest(http.MethodGet, "/messages/search?q=daily&room_id=room-1&limit=10", nil)
+	res := httptest.NewRecorder()
+
+	s.router.ServeHTTP(res, req)
+
+	s.Equal(http.StatusOK, res.Code)
+
+	var payload struct {
+		Messages []messagePayload `json:"messages"`
+	}
+	s.Require().NoError(json.Unmarshal(res.Body.Bytes(), &payload))
+	s.Len(payload.Messages, 1)
+	s.Equal("msg-1", payload.Messages[0].ID)
+}
+
+func (s *MessageHandlerTestSuite) TestSearchMissingQuery() {
+	req := httptest.NewRequest(http.MethodGet, "/messages/search", nil)
+	res := httptest.NewRecorder()
+
+	s.router.ServeHTTP(res, req)
+
+	s.Equal(http.StatusBadRequest, res.Code)
+	s.Contains(res.Body.String(), "query parameter q is required")
+}
+
+func (s *MessageHandlerTestSuite) TestSearchServiceError() {
+	s.service.On("Search", mock.Anything, "user-1", "", "daily", 0).Return(nil, messages.ErrInvalidSearch).Once()
+
+	req := httptest.NewRequest(http.MethodGet, "/messages/search?q=daily", nil)
+	res := httptest.NewRecorder()
+
+	s.router.ServeHTTP(res, req)
+
+	s.Equal(http.StatusBadRequest, res.Code)
+	s.Contains(res.Body.String(), messages.ErrInvalidSearch.Error())
 }
 
 func TestMessageHandlerTestSuite(t *testing.T) {
