@@ -238,7 +238,6 @@ func (s *service) ValidateAccessToken(ctx context.Context, accessToken string) (
 	return userID, nil
 }
 
-
 func (s *service) invalidateSession(ctx context.Context, userID string) error {
 	token, err := s.cache.Get(ctx, sessionKey(userID))
 	if err != nil && !errors.Is(err, redisadapter.ErrCacheMiss) {
