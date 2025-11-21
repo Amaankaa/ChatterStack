@@ -25,6 +25,7 @@ import (
 	postgresrepo "chatterstack/internal/repository/postgres"
 	redisrepo "chatterstack/internal/repository/redis"
 	"chatterstack/internal/usecase"
+	"chatterstack/pkg/middleware"
 
 	wsdelivery "chatterstack/internal/delivery/websocket"
 
@@ -102,6 +103,11 @@ func startAPIServer(ctx context.Context, cfg config.Config) error {
 
 	router := gin.New()
 	router.Use(gin.Logger(), gin.Recovery())
+	router.Use(middleware.RateLimit(middleware.RateLimiterConfig{
+		Requests: cfg.RateLimit.Requests,
+		Burst:    cfg.RateLimit.Burst,
+		Window:   cfg.RateLimit.Window,
+	}))
 
 	httpdelivery.RegisterRoutes(router, httpdelivery.Services{
 		Auth:    authUC,

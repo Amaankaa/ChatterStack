@@ -4,6 +4,7 @@ import (
 	"github.com/gin-gonic/gin"
 
 	"chatterstack/internal/usecase"
+	"chatterstack/pkg/middleware"
 )
 
 type Services struct {
@@ -17,7 +18,11 @@ func RegisterRoutes(router *gin.Engine, svc Services) {
 	api := router.Group("/v1")
 
 	NewAuthHandler(svc.Auth).RegisterRoutes(api.Group("/auth"))
-	NewUserHandler(svc.User).RegisterRoutes(api.Group("/users"))
-	NewRoomHandler(svc.Room).RegisterRoutes(api.Group("/rooms"))
-	NewMessageHandler(svc.Message).RegisterRoutes(api.Group("/rooms"))
+
+	protected := api.Group("")
+	protected.Use(middleware.Auth(svc.Auth))
+
+	NewUserHandler(svc.User).RegisterRoutes(protected.Group("/users"))
+	NewRoomHandler(svc.Room).RegisterRoutes(protected.Group("/rooms"))
+	NewMessageHandler(svc.Message).RegisterRoutes(protected.Group("/rooms"))
 }

@@ -9,6 +9,7 @@ import (
 	"chatterstack/internal/domain/messages"
 	"chatterstack/internal/domain/models"
 	"chatterstack/internal/usecase"
+	"chatterstack/pkg/middleware"
 )
 
 // MessageHandler wires REST endpoints for message retrieval and creation.
@@ -32,7 +33,6 @@ func (h *MessageHandler) RegisterRoutes(group *gin.RouterGroup) {
 func (h *MessageHandler) send(c *gin.Context) {
 	roomID := c.Param("roomID")
 	var req struct {
-		SenderID    string `json:"sender_id"`
 		Content     string `json:"content"`
 		Attachments []struct {
 			URL       string `json:"url"`
@@ -42,6 +42,12 @@ func (h *MessageHandler) send(c *gin.Context) {
 	}
 	if err := c.ShouldBindJSON(&req); err != nil {
 		respondBadRequest(c, "invalid JSON payload")
+		return
+	}
+
+	userID, ok := currentUserID(c)
+	if !ok {
+		respondJSONError(c, http.StatusUnauthorized, "unauthorized")
 		return
 	}
 
@@ -56,7 +62,7 @@ func (h *MessageHandler) send(c *gin.Context) {
 
 	msg, err := h.messageUC.Send(c.Request.Context(), messages.SendMessageInput{
 		RoomID:      roomID,
-		SenderID:    req.SenderID,
+		SenderID:    userID,
 		Content:     req.Content,
 		Attachments: attachments,
 	})
@@ -97,19 +103,13 @@ func (h *MessageHandler) listByRoom(c *gin.Context) {
 
 func (h *MessageHandler) markDelivered(c *gin.Context) {
 	messageID := c.Param("messageID")
-	var req struct {
-		UserID string `json:"user_id"`
-	}
-	if err := c.ShouldBindJSON(&req); err != nil {
-		respondBadRequest(c, "invalid JSON payload")
-		return
-	}
-	if req.UserID == "" {
-		respondBadRequest(c, "user_id is required")
+	userID, ok := currentUserID(c)
+	if !ok {
+		respondJSONError(c, http.StatusUnauthorized, "unauthorized")
 		return
 	}
 
-	if err := h.messageUC.MarkDelivered(c.Request.Context(), messageID, req.UserID); err != nil {
+	if err := h.messageUC.MarkDelivered(c.Request.Context(), messageID, userID); err != nil {
 		status, msgErr := mapMessageError(err)
 		if status == http.StatusInternalServerError {
 			respondInternalServerError(c, err)
@@ -124,19 +124,13 @@ func (h *MessageHandler) markDelivered(c *gin.Context) {
 
 func (h *MessageHandler) markRead(c *gin.Context) {
 	messageID := c.Param("messageID")
-	var req struct {
-		UserID string `json:"user_id"`
-	}
-	if err := c.ShouldBindJSON(&req); err != nil {
-		respondBadRequest(c, "invalid JSON payload")
-		return
-	}
-	if req.UserID == "" {
-		respondBadRequest(c, "user_id is required")
+	userID, ok := currentUserID(c)
+	if !ok {
+		respondJSONError(c, http.StatusUnauthorized, "unauthorized")
 		return
 	}
 
-	if err := h.messageUC.MarkRead(c.Request.Context(), messageID, req.UserID); err != nil {
+	if err := h.messageUC.MarkRead(c.Request.Context(), messageID, userID); err != nil {
 		status, msgErr := mapMessageError(err)
 		if status == http.StatusInternalServerError {
 			respondInternalServerError(c, err)
@@ -167,4 +161,16 @@ func parsePagination(c *gin.Context) (int, int, bool) {
 		limit = l
 	}
 	return page, limit, true
+}
+
+func currentUserID(c *gin.Context) (string, bool) {
+	value, ok := c.Get(middleware.UserIDContextKey)
+	if !ok {
+		return "", false
+	}
+	userID, ok := value.(string)
+	if !ok || userID == "" {
+		return "", false
+	}
+	return userID, true
 }

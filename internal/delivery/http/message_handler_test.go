@@ -11,11 +11,13 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"github.com/stretchr/testify/mock"
+	"github.com/stretchr/testify/require"
 	"github.com/stretchr/testify/suite"
 
 	"chatterstack/internal/domain/messages"
 	"chatterstack/internal/domain/models"
 	"chatterstack/internal/usecase"
+	"chatterstack/pkg/middleware"
 )
 
 func init() {
@@ -64,6 +66,10 @@ func (s *MessageHandlerTestSuite) SetupTest() {
 	s.handler = NewMessageHandler(uc)
 
 	s.router = gin.New()
+	s.router.Use(func(c *gin.Context) {
+		c.Set(middleware.UserIDContextKey, "user-1")
+		c.Next()
+	})
 	routes := s.router.Group("/rooms")
 	s.handler.RegisterRoutes(routes)
 }
@@ -95,8 +101,7 @@ func (s *MessageHandlerTestSuite) TestSendSuccess() {
 	s.service.On("Send", mock.Anything, expected).Return(result, nil).Once()
 
 	body := map[string]any{
-		"sender_id": expected.SenderID,
-		"content":   expected.Content,
+		"content": expected.Content,
 		"attachments": []map[string]any{
 			{
 				"url":        expected.Attachments[0].URL,
@@ -133,10 +138,7 @@ func (s *MessageHandlerTestSuite) TestSendDomainError() {
 	})
 	s.service.On("Send", mock.Anything, matcher).Return((*models.Message)(nil), messages.ErrInvalidContent).Once()
 
-	payload, _ := json.Marshal(map[string]any{
-		"sender_id": "user-1",
-		"content":   "",
-	})
+	payload, _ := json.Marshal(map[string]any{"content": ""})
 
 	req := httptest.NewRequest(http.MethodPost, "/rooms/room-1/messages", bytes.NewReader(payload))
 	req.Header.Set("Content-Type", "application/json")
@@ -203,8 +205,7 @@ func (s *MessageHandlerTestSuite) TestListByRoomDomainError() {
 func (s *MessageHandlerTestSuite) TestMarkDeliveredSuccess() {
 	s.service.On("MarkDelivered", mock.Anything, "msg-1", "user-1").Return(nil).Once()
 
-	payload, _ := json.Marshal(map[string]any{"user_id": "user-1"})
-	req := httptest.NewRequest(http.MethodPost, "/rooms/room-1/messages/msg-1/deliver", bytes.NewReader(payload))
+	req := httptest.NewRequest(http.MethodPost, "/rooms/room-1/messages/msg-1/deliver", nil)
 	req.Header.Set("Content-Type", "application/json")
 	res := httptest.NewRecorder()
 
@@ -213,23 +214,10 @@ func (s *MessageHandlerTestSuite) TestMarkDeliveredSuccess() {
 	s.Equal(http.StatusNoContent, res.Code)
 }
 
-func (s *MessageHandlerTestSuite) TestMarkDeliveredRequiresUserID() {
-	payload, _ := json.Marshal(map[string]any{"user_id": ""})
-	req := httptest.NewRequest(http.MethodPost, "/rooms/room-1/messages/msg-1/deliver", bytes.NewReader(payload))
-	req.Header.Set("Content-Type", "application/json")
-	res := httptest.NewRecorder()
-
-	s.router.ServeHTTP(res, req)
-
-	s.Equal(http.StatusBadRequest, res.Code)
-	s.Contains(res.Body.String(), "user_id is required")
-}
-
 func (s *MessageHandlerTestSuite) TestMarkDeliveredDomainError() {
 	s.service.On("MarkDelivered", mock.Anything, "msg-1", "user-1").Return(messages.ErrInvalidMessageID).Once()
 
-	payload, _ := json.Marshal(map[string]any{"user_id": "user-1"})
-	req := httptest.NewRequest(http.MethodPost, "/rooms/room-1/messages/msg-1/deliver", bytes.NewReader(payload))
+	req := httptest.NewRequest(http.MethodPost, "/rooms/room-1/messages/msg-1/deliver", nil)
 	req.Header.Set("Content-Type", "application/json")
 	res := httptest.NewRecorder()
 
@@ -242,8 +230,7 @@ func (s *MessageHandlerTestSuite) TestMarkDeliveredDomainError() {
 func (s *MessageHandlerTestSuite) TestMarkReadSuccess() {
 	s.service.On("MarkRead", mock.Anything, "msg-1", "user-1").Return(nil).Once()
 
-	payload, _ := json.Marshal(map[string]any{"user_id": "user-1"})
-	req := httptest.NewRequest(http.MethodPost, "/rooms/room-1/messages/msg-1/read", bytes.NewReader(payload))
+	req := httptest.NewRequest(http.MethodPost, "/rooms/room-1/messages/msg-1/read", nil)
 	req.Header.Set("Content-Type", "application/json")
 	res := httptest.NewRecorder()
 
@@ -255,8 +242,7 @@ func (s *MessageHandlerTestSuite) TestMarkReadSuccess() {
 func (s *MessageHandlerTestSuite) TestMarkReadDomainError() {
 	s.service.On("MarkRead", mock.Anything, "msg-1", "user-1").Return(messages.ErrInvalidUserID).Once()
 
-	payload, _ := json.Marshal(map[string]any{"user_id": "user-1"})
-	req := httptest.NewRequest(http.MethodPost, "/rooms/room-1/messages/msg-1/read", bytes.NewReader(payload))
+	req := httptest.NewRequest(http.MethodPost, "/rooms/room-1/messages/msg-1/read", nil)
 	req.Header.Set("Content-Type", "application/json")
 	res := httptest.NewRecorder()
 
@@ -268,4 +254,23 @@ func (s *MessageHandlerTestSuite) TestMarkReadDomainError() {
 
 func TestMessageHandlerTestSuite(t *testing.T) {
 	suite.Run(t, new(MessageHandlerTestSuite))
+}
+
+func TestMessageHandlerRequiresAuthentication(t *testing.T) {
+	service := new(mockMessageService)
+	uc := usecase.NewMessageUseCase(service)
+	h := NewMessageHandler(uc)
+
+	router := gin.New()
+	routes := router.Group("/rooms")
+	h.RegisterRoutes(routes)
+
+	req := httptest.NewRequest(http.MethodPost, "/rooms/room-1/messages", bytes.NewBufferString(`{"content":"hello"}`))
+	req.Header.Set("Content-Type", "application/json")
+	res := httptest.NewRecorder()
+
+	router.ServeHTTP(res, req)
+
+	require.Equal(t, http.StatusUnauthorized, res.Code)
+	service.AssertNotCalled(t, "Send", mock.Anything, mock.Anything)
 }

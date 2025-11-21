@@ -3,6 +3,7 @@ package config
 import (
 	"fmt"
 	"os"
+	"strconv"
 	"time"
 )
 
@@ -14,6 +15,7 @@ type Config struct {
 	Postgres  PostgresConfig
 	Redis     RedisConfig
 	JWT       JWTConfig
+	RateLimit RateLimitConfig
 }
 
 // HTTPConfig holds REST server options.
@@ -57,6 +59,13 @@ type JWTConfig struct {
 	RefreshTTL    time.Duration
 }
 
+// RateLimitConfig stores API rate limiting parameters.
+type RateLimitConfig struct {
+	Requests int
+	Burst    int
+	Window   time.Duration
+}
+
 // Load reads configuration from environment variables, applying sensible defaults.
 func Load() (Config, error) {
 	cfg := Config{
@@ -94,6 +103,20 @@ func Load() (Config, error) {
 	}
 	cfg.JWT.RefreshTTL = refreshTTL
 
+	requests, err := parseIntEnv("RATE_LIMIT_REQUESTS", 100)
+	if err != nil {
+		return Config{}, err
+	}
+	burst, err := parseIntEnv("RATE_LIMIT_BURST", requests)
+	if err != nil {
+		return Config{}, err
+	}
+	window, err := parseDurationEnv("RATE_LIMIT_WINDOW", "1m")
+	if err != nil {
+		return Config{}, err
+	}
+	cfg.RateLimit = RateLimitConfig{Requests: requests, Burst: burst, Window: window}
+
 	return cfg, nil
 }
 
@@ -111,4 +134,13 @@ func parseDurationEnv(key, fallback string) (time.Duration, error) {
 		return 0, fmt.Errorf("invalid duration for %s: %w", key, err)
 	}
 	return dur, nil
+}
+
+func parseIntEnv(key string, fallback int) (int, error) {
+	value := getEnv(key, fmt.Sprintf("%d", fallback))
+	i, err := strconv.Atoi(value)
+	if err != nil || i < 0 {
+		return 0, fmt.Errorf("invalid integer for %s: %v", key, err)
+	}
+	return i, nil
 }
