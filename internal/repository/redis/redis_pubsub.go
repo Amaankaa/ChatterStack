@@ -29,3 +29,12 @@ func (p *PubSub) Subscribe(ctx context.Context, channel string) (<-chan *redis.M
 	}
 	return sub.Channel(), sub.Close, nil
 }
+
+// PatternSubscribe listens for messages on a set of Redis channel patterns.
+func (p *PubSub) PatternSubscribe(ctx context.Context, patterns ...string) (<-chan *redis.Message, func() error, error) {
+	sub := p.client.PSubscribe(ctx, patterns...)
+	if _, err := sub.Receive(ctx); err != nil {
+		return nil, nil, err
+	}
+	return sub.Channel(), sub.Close, nil
+}

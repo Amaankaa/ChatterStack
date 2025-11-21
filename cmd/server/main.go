@@ -177,12 +177,14 @@ func startWebsocketServer(ctx context.Context, cfg config.Config) error {
 
 	authUC := usecase.NewAuthUseCase(authService)
 	roomUC := usecase.NewRoomUseCase(roomService)
-	_ = usecase.NewMessageUseCase(messageService) // keep handy when broadcasting via pub/sub later
+	messageUC := usecase.NewMessageUseCase(messageService)
 
 	hub := wsdelivery.NewHub()
 	hubCtx, cancel := context.WithCancel(ctx)
 	defer cancel()
 	go hub.Run(hubCtx)
+
+	wsdelivery.StartMessageRelay(hubCtx, hub, pubsub)
 
 	upgrader := ws.Upgrader{
 		ReadBufferSize:  1024,
@@ -221,11 +223,11 @@ func startWebsocketServer(ctx context.Context, cfg config.Config) error {
 			return
 		}
 
-		client := wsdelivery.NewClient(conn, hub, userID, allowed)
+		client := wsdelivery.NewClient(conn, hub, userID, allowed, messageUC)
 		hub.Register(client)
 
 		go client.WritePump()
-		client.ReadPump()
+		client.ReadPump(hubCtx)
 	})
 
 	server := &http.Server{
