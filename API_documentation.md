@@ -141,6 +141,26 @@ All non-auth endpoints require an `Authorization: Bearer {access_token}` header 
   - `200 OK`: `{ "rooms": [...] }`.
   - `400 Bad Request`: Invalid limit or other validation errors.
 
+### Ensure Direct Message Room *(Preview)*
+- **POST** `/rooms/direct`
+- **Description:** Returns a one-to-one room between the authenticated user and the requested participant. If a direct room already exists, the same record is returned. Re-issuing the call is idempotent.
+- **Request Body:**
+  ```json
+  {
+    "peer_user_id": "string"
+  }
+  ```
+- **Responses:**
+  - `200 OK`: Returns the existing direct message room details when already created.
+  - `201 Created`: Returns the newly created direct message room.
+  - `400 Bad Request`: Missing `peer_user_id`, attempting to DM yourself, or validation errors.
+  - `404 Not Found`: Peer user does not exist or caller lacks access.
+
+**Notes**
+- Direct message rooms are always non-group rooms with exactly two members.
+- The server generates a canonical stable name (`dm:{userA}:{userB}`) using a lexicographic pair to avoid duplicates.
+- Future client flows should call this endpoint before sending a private message to ensure the room exists.
+
 
 ## Message Endpoints (Protected)
 

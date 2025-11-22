@@ -6,6 +6,8 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/jackc/pgx/v5"
+
 	"chatterstack/internal/domain/models"
 )
 
@@ -14,6 +16,7 @@ var (
 	ErrInvalidCreatorID  = errors.New("rooms: creator id is required")
 	ErrInvalidMemberUser = errors.New("rooms: member user id is required")
 	ErrInvalidUserID     = errors.New("rooms: user id is required")
+	ErrDirectMessageSelf = errors.New("rooms: direct message requires two distinct users")
 )
 
 const (
@@ -28,6 +31,7 @@ type roomRepository interface {
 	RemoveMember(ctx context.Context, roomID, userID string) error
 	ListMembers(ctx context.Context, roomID string) ([]models.RoomMember, error)
 	Search(ctx context.Context, userID, query string, limit int) ([]models.Room, error)
+	FindDirectRoom(ctx context.Context, userA, userB string) (*models.Room, error)
 }
 
 type service struct {
@@ -40,7 +44,8 @@ func NewService(repo roomRepository) Service {
 }
 
 func (s *service) Create(ctx context.Context, input CreateRoomInput) (*models.Room, error) {
-	if strings.TrimSpace(input.Name) == "" {
+	name := strings.TrimSpace(input.Name)
+	if name == "" {
 		return nil, ErrInvalidRoomName
 	}
 	if strings.TrimSpace(input.CreatorID) == "" {
@@ -48,7 +53,7 @@ func (s *service) Create(ctx context.Context, input CreateRoomInput) (*models.Ro
 	}
 
 	room := &models.Room{
-		Name:      strings.TrimSpace(input.Name),
+		Name:      name,
 		IsGroup:   input.IsGroup,
 		CreatedBy: input.CreatorID,
 	}
@@ -110,6 +115,46 @@ func (s *service) Search(ctx context.Context, userID, query string, limit int) (
 	}
 
 	return s.repo.Search(ctx, userID, query, limit)
+}
+
+func (s *service) EnsureDirectRoom(ctx context.Context, userA, userB string) (*models.Room, bool, error) {
+	userA = strings.TrimSpace(userA)
+	userB = strings.TrimSpace(userB)
+	if userA == "" || userB == "" {
+		return nil, false, ErrInvalidUserID
+	}
+	if userA == userB {
+		return nil, false, ErrDirectMessageSelf
+	}
+
+	primary, secondary := normalizePair(userA, userB)
+	if room, err := s.repo.FindDirectRoom(ctx, primary, secondary); err == nil {
+		return room, false, nil
+	} else if !errors.Is(err, pgx.ErrNoRows) {
+		return nil, false, err
+	}
+
+	generatedName := fmt.Sprintf("dm:%s:%s", primary, secondary)
+
+	room, err := s.Create(ctx, CreateRoomInput{
+		Name:      generatedName,
+		IsGroup:   false,
+		CreatorID: userA,
+		Members: []RoomMemberInput{
+			{UserID: userB, Role: models.RoomRoleMember},
+		},
+	})
+	if err != nil {
+		return nil, false, err
+	}
+	return room, true, nil
+}
+
+func normalizePair(a, b string) (string, string) {
+	if a < b {
+		return a, b
+	}
+	return b, a
 }
 
 func buildMembers(input CreateRoomInput) []models.RoomMember {

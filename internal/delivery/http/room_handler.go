@@ -25,6 +25,7 @@ func NewRoomHandler(roomUC *usecase.RoomUseCase) *RoomHandler {
 func (h *RoomHandler) RegisterRoutes(group *gin.RouterGroup) {
 	group.GET("/", h.search)
 	group.POST("/", h.create)
+	group.POST("/direct", h.ensureDirectRoom)
 	group.POST("/:roomID/members", h.addMember)
 	group.DELETE("/:roomID/members/:userID", h.removeMember)
 	group.GET("/:roomID/members", h.listMembers)
@@ -101,6 +102,39 @@ func (h *RoomHandler) create(c *gin.Context) {
 	}
 
 	c.JSON(http.StatusCreated, toRoomPayload(room))
+}
+
+func (h *RoomHandler) ensureDirectRoom(c *gin.Context) {
+	userID, ok := currentUserID(c)
+	if !ok {
+		respondJSONError(c, http.StatusUnauthorized, "unauthorized")
+		return
+	}
+
+	var req struct {
+		PeerUserID string `json:"peer_user_id"`
+	}
+	if err := c.ShouldBindJSON(&req); err != nil {
+		respondBadRequest(c, "invalid JSON payload")
+		return
+	}
+
+	room, created, err := h.roomUC.EnsureDirectRoom(c.Request.Context(), userID, req.PeerUserID)
+	if err != nil {
+		status, msg := mapRoomError(err)
+		if status == http.StatusInternalServerError {
+			respondInternalServerError(c, err)
+			return
+		}
+		respondJSONError(c, status, msg)
+		return
+	}
+
+	status := http.StatusOK
+	if created {
+		status = http.StatusCreated
+	}
+	c.JSON(status, toRoomPayload(room))
 }
 
 func (h *RoomHandler) addMember(c *gin.Context) {

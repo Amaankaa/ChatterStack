@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/gin-gonic/gin"
+	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/suite"
 
@@ -54,6 +55,20 @@ func (m *mockRoomService) Search(ctx context.Context, userID, query string, limi
 		return res.([]models.Room), args.Error(1)
 	}
 	return nil, args.Error(1)
+}
+
+func (m *mockRoomService) EnsureDirectRoom(ctx context.Context, userA, userB string) (*models.Room, bool, error) {
+	args := m.Called(ctx, userA, userB)
+	room, _ := args.Get(0).(*models.Room)
+	created := false
+	if len(args) > 1 {
+		created = args.Bool(1)
+	}
+	var err error
+	if len(args) > 2 {
+		err = args.Error(2)
+	}
+	return room, created, err
 }
 
 type RoomHandlerTestSuite struct {
@@ -117,6 +132,85 @@ func (s *RoomHandlerTestSuite) TestSearchServiceError() {
 
 	s.Equal(http.StatusBadRequest, res.Code)
 	s.Contains(res.Body.String(), "rooms: unexpected error")
+}
+
+func (s *RoomHandlerTestSuite) TestEnsureDirectRoomCreatesNew() {
+	createdAt := time.Date(2025, 11, 9, 9, 0, 0, 0, time.UTC)
+	room := &models.Room{ID: "room-dm", Name: "dm:user-1:user-2", IsGroup: false, CreatedBy: "user-1", CreatedAt: createdAt}
+	s.service.On("EnsureDirectRoom", mock.Anything, "user-1", "user-2").Return(room, true, nil).Once()
+
+	payload, _ := json.Marshal(map[string]any{"peer_user_id": "user-2"})
+	req := httptest.NewRequest(http.MethodPost, "/rooms/direct", bytes.NewReader(payload))
+	req.Header.Set("Content-Type", "application/json")
+	res := httptest.NewRecorder()
+
+	s.router.ServeHTTP(res, req)
+
+	s.Equal(http.StatusCreated, res.Code)
+
+	var resp roomPayload
+	s.Require().NoError(json.Unmarshal(res.Body.Bytes(), &resp))
+	s.Equal(room.ID, resp.ID)
+	s.Equal(room.Name, resp.Name)
+	s.False(resp.IsGroup)
+}
+
+func (s *RoomHandlerTestSuite) TestEnsureDirectRoomReturnsExisting() {
+	createdAt := time.Date(2025, 11, 9, 9, 0, 0, 0, time.UTC)
+	room := &models.Room{ID: "room-existing", Name: "dm:user-1:user-3", IsGroup: false, CreatedBy: "user-1", CreatedAt: createdAt}
+	s.service.On("EnsureDirectRoom", mock.Anything, "user-1", "user-3").Return(room, false, nil).Once()
+
+	payload, _ := json.Marshal(map[string]any{"peer_user_id": "user-3"})
+	req := httptest.NewRequest(http.MethodPost, "/rooms/direct", bytes.NewReader(payload))
+	req.Header.Set("Content-Type", "application/json")
+	res := httptest.NewRecorder()
+
+	s.router.ServeHTTP(res, req)
+
+	s.Equal(http.StatusOK, res.Code)
+
+	var resp roomPayload
+	s.Require().NoError(json.Unmarshal(res.Body.Bytes(), &resp))
+	s.Equal(room.ID, resp.ID)
+}
+
+func (s *RoomHandlerTestSuite) TestEnsureDirectRoomServiceError() {
+	s.service.On("EnsureDirectRoom", mock.Anything, "user-1", "user-1").Return((*models.Room)(nil), false, rooms.ErrDirectMessageSelf).Once()
+
+	payload, _ := json.Marshal(map[string]any{"peer_user_id": "user-1"})
+	req := httptest.NewRequest(http.MethodPost, "/rooms/direct", bytes.NewReader(payload))
+	req.Header.Set("Content-Type", "application/json")
+	res := httptest.NewRecorder()
+
+	s.router.ServeHTTP(res, req)
+
+	s.Equal(http.StatusBadRequest, res.Code)
+	s.Contains(res.Body.String(), rooms.ErrDirectMessageSelf.Error())
+}
+
+func (s *RoomHandlerTestSuite) TestEnsureDirectRoomInvalidJSON() {
+	req := httptest.NewRequest(http.MethodPost, "/rooms/direct", bytes.NewBufferString("{"))
+	req.Header.Set("Content-Type", "application/json")
+	res := httptest.NewRecorder()
+
+	s.router.ServeHTTP(res, req)
+
+	s.Equal(http.StatusBadRequest, res.Code)
+}
+
+func (s *RoomHandlerTestSuite) TestEnsureDirectRoomMissingPeer() {
+	pgErr := &pgconn.PgError{Code: "23503", ConstraintName: "room_members_user_id_fkey"}
+	s.service.On("EnsureDirectRoom", mock.Anything, "user-1", "missing-user").Return((*models.Room)(nil), false, pgErr).Once()
+
+	payload, _ := json.Marshal(map[string]any{"peer_user_id": "missing-user"})
+	req := httptest.NewRequest(http.MethodPost, "/rooms/direct", bytes.NewReader(payload))
+	req.Header.Set("Content-Type", "application/json")
+	res := httptest.NewRecorder()
+
+	s.router.ServeHTTP(res, req)
+
+	s.Equal(http.StatusNotFound, res.Code)
+	s.Contains(res.Body.String(), "rooms: user not found")
 }
 
 func (s *RoomHandlerTestSuite) TestCreateSuccess() {

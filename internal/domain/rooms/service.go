@@ -13,6 +13,7 @@ type Service interface {
 	RemoveMember(ctx context.Context, roomID, userID string) error
 	ListMembers(ctx context.Context, roomID string) ([]models.RoomMember, error)
 	Search(ctx context.Context, userID, query string, limit int) ([]models.Room, error)
+	EnsureDirectRoom(ctx context.Context, userA, userB string) (*models.Room, bool, error)
 }
 
 // CreateRoomInput encapsulates attributes required to create a room.

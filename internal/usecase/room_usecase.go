@@ -34,3 +34,7 @@ func (uc *RoomUseCase) ListMembers(ctx context.Context, roomID string) ([]models
 func (uc *RoomUseCase) Search(ctx context.Context, userID, query string, limit int) ([]models.Room, error) {
 	return uc.RoomService.Search(ctx, userID, query, limit)
 }
+
+func (uc *RoomUseCase) EnsureDirectRoom(ctx context.Context, userA, userB string) (*models.Room, bool, error) {
+	return uc.RoomService.EnsureDirectRoom(ctx, userA, userB)
+}

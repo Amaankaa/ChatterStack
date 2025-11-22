@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/gin-gonic/gin"
+	"github.com/jackc/pgx/v5/pgconn"
 
 	"chatterstack/internal/domain/auth"
 	"chatterstack/internal/domain/messages"
@@ -125,11 +126,29 @@ func mapMessageError(err error) (int, string) {
 }
 
 func mapRoomError(err error) (int, string) {
+	var pgErr *pgconn.PgError
+	if errors.As(err, &pgErr) {
+		switch pgErr.Code {
+		case "23503":
+			// Foreign key violation indicates a referenced entity is missing.
+			if strings.Contains(pgErr.ConstraintName, "user") {
+				return http.StatusNotFound, "rooms: user not found"
+			}
+			if strings.Contains(pgErr.ConstraintName, "room") {
+				return http.StatusNotFound, "rooms: room not found"
+			}
+			return http.StatusNotFound, "rooms: related entity not found"
+		case "23505":
+			return http.StatusConflict, "rooms: duplicate record"
+		}
+	}
+
 	switch {
 	case errors.Is(err, rooms.ErrInvalidRoomName),
 		errors.Is(err, rooms.ErrInvalidCreatorID),
 		errors.Is(err, rooms.ErrInvalidMemberUser),
-		errors.Is(err, rooms.ErrInvalidUserID):
+		errors.Is(err, rooms.ErrInvalidUserID),
+		errors.Is(err, rooms.ErrDirectMessageSelf):
 		return http.StatusBadRequest, err.Error()
 	default:
 		if err != nil && strings.HasPrefix(err.Error(), "rooms:") {

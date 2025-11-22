@@ -110,3 +110,26 @@ func TestRoomRepository_Search(t *testing.T) {
 
 	require.NoError(t, mockPool.ExpectationsWereMet())
 }
+
+func TestRoomRepository_FindDirectRoom(t *testing.T) {
+	ctx := context.Background()
+	poolWrapper, mockPool := newPgxMockPool(t)
+	repo := NewRoomRepository(poolWrapper)
+
+	createdAt := time.Date(2024, 5, 1, 12, 0, 0, 0, time.UTC)
+	rows := pgxmock.NewRows([]string{"id", "name", "is_group", "created_by", "created_at"}).
+		AddRow("room-dm-1", "dm:user-1:user-2", false, "user-1", createdAt)
+
+	mockPool.ExpectQuery("SELECT r.id, r.name, r.is_group, r.created_by, r.created_at").
+		WithArgs([]string{"user-1", "user-2"}).
+		WillReturnRows(rows)
+
+	room, err := repo.FindDirectRoom(ctx, "user-1", "user-2")
+	require.NoError(t, err)
+	require.NotNil(t, room)
+	require.Equal(t, "room-dm-1", room.ID)
+	require.False(t, room.IsGroup)
+	require.Equal(t, createdAt, room.CreatedAt)
+
+	require.NoError(t, mockPool.ExpectationsWereMet())
+}
