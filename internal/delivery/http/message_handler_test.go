@@ -42,6 +42,14 @@ func (m *mockMessageService) ListByRoom(ctx context.Context, roomID string, page
 	return nil, args.Error(1)
 }
 
+func (m *mockMessageService) ListAround(ctx context.Context, roomID, messageID string, limit int) ([]models.Message, error) {
+	args := m.Called(ctx, roomID, messageID, limit)
+	if res := args.Get(0); res != nil {
+		return res.([]models.Message), args.Error(1)
+	}
+	return nil, args.Error(1)
+}
+
 func (m *mockMessageService) MarkDelivered(ctx context.Context, messageID, userID string) error {
 	args := m.Called(ctx, messageID, userID)
 	return args.Error(0)
@@ -210,6 +218,50 @@ func (s *MessageHandlerTestSuite) TestListByRoomDomainError() {
 
 	s.Equal(http.StatusBadRequest, res.Code)
 	s.Contains(res.Body.String(), messages.ErrInvalidRoomID.Error())
+}
+
+func (s *MessageHandlerTestSuite) TestListByRoomAroundSuccess() {
+	created := time.Date(2025, 11, 22, 12, 0, 0, 0, time.UTC)
+	s.service.On("ListAround", mock.Anything, "room-1", "msg-1", 0).
+		Return([]models.Message{
+			{ID: "msg-0", RoomID: "room-1", CreatedAt: created.Add(-time.Minute)},
+			{ID: "msg-1", RoomID: "room-1", CreatedAt: created},
+		}, nil).Once()
+
+	req := httptest.NewRequest(http.MethodGet, "/rooms/room-1/messages?around_message_id=msg-1", nil)
+	res := httptest.NewRecorder()
+
+	s.router.ServeHTTP(res, req)
+
+	s.Equal(http.StatusOK, res.Code)
+
+	var payload struct {
+		Messages []messagePayload `json:"messages"`
+	}
+	s.Require().NoError(json.Unmarshal(res.Body.Bytes(), &payload))
+	s.Len(payload.Messages, 2)
+	s.Equal("msg-0", payload.Messages[0].ID)
+}
+
+func (s *MessageHandlerTestSuite) TestListByRoomAroundInvalidLimit() {
+	req := httptest.NewRequest(http.MethodGet, "/rooms/room-1/messages?around_message_id=msg-1&limit=abc", nil)
+	res := httptest.NewRecorder()
+
+	s.router.ServeHTTP(res, req)
+
+	s.Equal(http.StatusBadRequest, res.Code)
+}
+
+func (s *MessageHandlerTestSuite) TestListByRoomAroundDomainError() {
+	s.service.On("ListAround", mock.Anything, "room-1", "msg-1", 0).Return(nil, messages.ErrInvalidMessageID).Once()
+
+	req := httptest.NewRequest(http.MethodGet, "/rooms/room-1/messages?around_message_id=msg-1", nil)
+	res := httptest.NewRecorder()
+
+	s.router.ServeHTTP(res, req)
+
+	s.Equal(http.StatusBadRequest, res.Code)
+	s.Contains(res.Body.String(), messages.ErrInvalidMessageID.Error())
 }
 
 func (s *MessageHandlerTestSuite) TestMarkDeliveredSuccess() {

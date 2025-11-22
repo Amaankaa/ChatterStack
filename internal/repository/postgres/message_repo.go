@@ -5,6 +5,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5"
 
 	"chatterstack/internal/domain/models"
 )
@@ -57,6 +58,85 @@ func (r *MessageRepository) ListByRoom(ctx context.Context, roomID string, limit
 		msgs = append(msgs, m)
 	}
 	return msgs, rows.Err()
+}
+
+func (r *MessageRepository) ListAround(ctx context.Context, roomID, messageID string, before, after int) ([]models.Message, error) {
+	row := r.pool.QueryRow(ctx,
+		`SELECT id, room_id, sender_id, content, status, created_at
+		FROM messages
+		WHERE id = $1`, messageID)
+
+	var target models.Message
+	if err := row.Scan(&target.ID, &target.RoomID, &target.SenderID, &target.Content, &target.Status, &target.CreatedAt); err != nil {
+		return nil, err
+	}
+
+	if target.RoomID != roomID {
+		return nil, pgx.ErrNoRows
+	}
+
+	beforeMsgs := make([]models.Message, 0, before)
+	if before > 0 {
+		rows, err := r.pool.Query(ctx,
+			`SELECT id, room_id, sender_id, content, status, created_at
+			FROM messages
+			WHERE room_id = $1 AND created_at < $2
+			ORDER BY created_at DESC
+			LIMIT $3`, roomID, target.CreatedAt, before)
+		if err != nil {
+			return nil, err
+		}
+		for rows.Next() {
+			var m models.Message
+			if err := rows.Scan(&m.ID, &m.RoomID, &m.SenderID, &m.Content, &m.Status, &m.CreatedAt); err != nil {
+				rows.Close()
+				return nil, err
+			}
+			beforeMsgs = append(beforeMsgs, m)
+		}
+		if err := rows.Err(); err != nil {
+			rows.Close()
+			return nil, err
+		}
+		rows.Close()
+		// reverse to chronological order
+		for i, j := 0, len(beforeMsgs)-1; i < j; i, j = i+1, j-1 {
+			beforeMsgs[i], beforeMsgs[j] = beforeMsgs[j], beforeMsgs[i]
+		}
+	}
+
+	afterMsgs := make([]models.Message, 0, after)
+	if after > 0 {
+		rows, err := r.pool.Query(ctx,
+			`SELECT id, room_id, sender_id, content, status, created_at
+			FROM messages
+			WHERE room_id = $1 AND created_at > $2
+			ORDER BY created_at ASC
+			LIMIT $3`, roomID, target.CreatedAt, after)
+		if err != nil {
+			return nil, err
+		}
+		for rows.Next() {
+			var m models.Message
+			if err := rows.Scan(&m.ID, &m.RoomID, &m.SenderID, &m.Content, &m.Status, &m.CreatedAt); err != nil {
+				rows.Close()
+				return nil, err
+			}
+			afterMsgs = append(afterMsgs, m)
+		}
+		if err := rows.Err(); err != nil {
+			rows.Close()
+			return nil, err
+		}
+		rows.Close()
+	}
+
+	msgs := make([]models.Message, 0, len(beforeMsgs)+1+len(afterMsgs))
+	msgs = append(msgs, beforeMsgs...)
+	msgs = append(msgs, target)
+	msgs = append(msgs, afterMsgs...)
+
+	return msgs, nil
 }
 
 func (r *MessageRepository) UpdateStatus(ctx context.Context, id string, status models.MessageStatus) error {

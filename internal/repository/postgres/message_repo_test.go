@@ -107,3 +107,42 @@ func TestMessageRepository_Search(t *testing.T) {
 
 	require.NoError(t, mockPool.ExpectationsWereMet())
 }
+
+func TestMessageRepository_ListAround(t *testing.T) {
+	ctx := context.Background()
+	poolWrapper, mockPool := newPgxMockPool(t)
+	repo := NewMessageRepository(poolWrapper)
+
+	targetCreated := time.Date(2025, 11, 22, 12, 0, 0, 0, time.UTC)
+	targetRow := pgxmock.NewRows([]string{"id", "room_id", "sender_id", "content", "status", "created_at"}).
+		AddRow("msg-target", "room-1", "user-1", "target", models.MessageStatusSent, targetCreated)
+
+	mockPool.ExpectQuery("SELECT id, room_id, sender_id, content, status, created_at\\s+FROM messages\\s+WHERE id =").
+		WithArgs("msg-target").
+		WillReturnRows(targetRow)
+
+	beforeCreated := targetCreated.Add(-time.Minute)
+	beforeRows := pgxmock.NewRows([]string{"id", "room_id", "sender_id", "content", "status", "created_at"}).
+		AddRow("msg-before", "room-1", "user-2", "before", models.MessageStatusDelivered, beforeCreated)
+
+	mockPool.ExpectQuery("SELECT id, room_id, sender_id, content, status, created_at\\s+FROM messages\\s+WHERE room_id =").
+		WithArgs("room-1", targetCreated, 1).
+		WillReturnRows(beforeRows)
+
+	afterCreated := targetCreated.Add(time.Minute)
+	afterRows := pgxmock.NewRows([]string{"id", "room_id", "sender_id", "content", "status", "created_at"}).
+		AddRow("msg-after", "room-1", "user-3", "after", models.MessageStatusRead, afterCreated)
+
+	mockPool.ExpectQuery("SELECT id, room_id, sender_id, content, status, created_at\\s+FROM messages\\s+WHERE room_id =").
+		WithArgs("room-1", targetCreated, 1).
+		WillReturnRows(afterRows)
+
+	msgs, err := repo.ListAround(ctx, "room-1", "msg-target", 1, 1)
+	require.NoError(t, err)
+	require.Len(t, msgs, 3)
+	require.Equal(t, "msg-before", msgs[0].ID)
+	require.Equal(t, "msg-target", msgs[1].ID)
+	require.Equal(t, "msg-after", msgs[2].ID)
+
+	require.NoError(t, mockPool.ExpectationsWereMet())
+}

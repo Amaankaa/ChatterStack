@@ -29,6 +29,7 @@ var (
 type messageRepository interface {
 	Create(ctx context.Context, msg *models.Message) error
 	ListByRoom(ctx context.Context, roomID string, limit, offset int) ([]models.Message, error)
+	ListAround(ctx context.Context, roomID, messageID string, before, after int) ([]models.Message, error)
 	UpdateStatus(ctx context.Context, id string, status models.MessageStatus) error
 	UpsertReceipt(ctx context.Context, receipt *models.MessageReceipt) error
 	Search(ctx context.Context, userID, roomID, query string, limit int) ([]models.Message, error)
@@ -97,6 +98,28 @@ func (s *service) ListByRoom(ctx context.Context, roomID string, page, limit int
 	}
 	offset := (page - 1) * limit
 	return s.repo.ListByRoom(ctx, roomID, limit, offset)
+}
+
+func (s *service) ListAround(ctx context.Context, roomID, messageID string, limit int) ([]models.Message, error) {
+	roomID = strings.TrimSpace(roomID)
+	if roomID == "" {
+		return nil, ErrInvalidRoomID
+	}
+	messageID = strings.TrimSpace(messageID)
+	if messageID == "" {
+		return nil, ErrInvalidMessageID
+	}
+	if limit <= 0 {
+		limit = defaultListLimit
+	}
+
+	before := limit / 2
+	after := limit - before - 1
+	if after < 0 {
+		after = 0
+	}
+
+	return s.repo.ListAround(ctx, roomID, messageID, before, after)
 }
 
 func (s *service) MarkDelivered(ctx context.Context, messageID, userID string) error {

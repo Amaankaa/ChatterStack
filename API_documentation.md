@@ -166,10 +166,18 @@ All message endpoints use the authenticated user ID from the bearer token.
   - `400 Bad Request`: Validation errors.
 
 ### List Messages
-- **GET** `/rooms/{roomID}/messages?page=1&limit=50`
+- **GET** `/rooms/{roomID}/messages`
+- **Query Parameters:**
+  - `page` *(optional)*: Defaults to 1 when paginating recent history.
+  - `limit` *(optional)*: Max items per page/window (defaults to 50).
+  - `around_message_id` *(optional)*: When supplied, ignores pagination and returns a window centered on the target message (see below).
 - **Responses:**
   - `200 OK`: `{ "messages": [...] }`.
-  - `400 Bad Request`: Invalid pagination.
+  - `400 Bad Request`: Invalid parameters or message not found in room.
+
+**Around Message Window**
+
+When `around_message_id` is provided, the service locates the target message, fetches half of the `limit` before it, the remainder after it, and returns the combined set chronologically. This enables “jump to message” experiences without paging through the entire timeline.
 
 ### Mark Delivered
 - **POST** `/rooms/{roomID}/messages/{messageID}/deliver`

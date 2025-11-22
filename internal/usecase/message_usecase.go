@@ -23,6 +23,10 @@ func (uc *MessageUseCase) ListByRoom(ctx context.Context, roomID string, page, l
 	return uc.MessageService.ListByRoom(ctx, roomID, page, limit)
 }
 
+func (uc *MessageUseCase) ListAround(ctx context.Context, roomID, messageID string, limit int) ([]models.Message, error) {
+	return uc.MessageService.ListAround(ctx, roomID, messageID, limit)
+}
+
 func (uc *MessageUseCase) MarkDelivered(ctx context.Context, messageID, userID string) error {
 	return uc.MessageService.MarkDelivered(ctx, messageID, userID)
 }

@@ -86,6 +86,31 @@ func (h *MessageHandler) send(c *gin.Context) {
 
 func (h *MessageHandler) listByRoom(c *gin.Context) {
 	roomID := c.Param("roomID")
+	if aroundID := c.Query("around_message_id"); aroundID != "" {
+		limit := 0
+		if v := c.Query("limit"); v != "" {
+			parsed, err := strconv.Atoi(v)
+			if err != nil || parsed <= 0 {
+				respondBadRequest(c, "invalid limit parameter")
+				return
+			}
+			limit = parsed
+		}
+
+		msgs, err := h.messageUC.ListAround(c.Request.Context(), roomID, aroundID, limit)
+		if err != nil {
+			status, msgErr := mapMessageError(err)
+			if status == http.StatusInternalServerError {
+				respondInternalServerError(c, err)
+				return
+			}
+			respondJSONError(c, status, msgErr)
+			return
+		}
+
+		c.JSON(http.StatusOK, gin.H{"messages": toMessagePayloads(msgs)})
+		return
+	}
 	page, limit, ok := parsePagination(c)
 	if !ok {
 		respondBadRequest(c, "invalid pagination parameters")
