@@ -84,7 +84,7 @@ func (r *MessageRepository) Search(ctx context.Context, userID, roomID, query st
 		`SELECT m.id, m.room_id, m.sender_id, m.content, m.status, m.created_at
 		FROM messages m
 		JOIN room_members rm ON m.room_id = rm.room_id
-		WHERE rm.user_id = $1 AND ($2 = '' OR m.room_id = $2)
+		WHERE rm.user_id = $1 AND ($2 = '' OR m.room_id::text = $2)
 		AND m.content ILIKE '%' || $3 || '%'
 		ORDER BY m.created_at DESC
 		LIMIT $4`, userID, roomID, query, limit)

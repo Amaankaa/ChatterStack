@@ -217,6 +217,13 @@ func (s *service) issueTokens(ctx context.Context, user *models.User) (*TokenPai
 		_ = s.cache.Delete(ctx, accessKey(accessToken))
 		return nil, err
 	}
+	if err := s.cache.Set(ctx, accessSessionKey(user.ID), accessToken, s.accessTTL); err != nil {
+		_ = s.cache.Delete(ctx, sessionKey(user.ID))
+		_ = s.cache.Delete(ctx, refreshKey(refreshToken))
+		_ = s.cache.Delete(ctx, accessKey(accessToken))
+		_ = s.cache.Delete(ctx, accessSessionKey(user.ID))
+		return nil, err
+	}
 
 	return &TokenPair{AccessToken: accessToken, RefreshToken: refreshToken}, nil
 }
@@ -232,6 +239,13 @@ func (s *service) ValidateAccessToken(ctx context.Context, accessToken string) (
 		if errors.Is(err, redisadapter.ErrCacheMiss) {
 			return "", ErrInvalidAccessToken
 		}
+		return "", err
+	}
+
+	if err := s.cache.Set(ctx, accessKey(token), userID, s.accessTTL); err != nil {
+		return "", err
+	}
+	if err := s.cache.Set(ctx, accessSessionKey(userID), token, s.accessTTL); err != nil {
 		return "", err
 	}
 

@@ -91,7 +91,7 @@ func Load() (Config, error) {
 		},
 	}
 
-	accessTTL, err := parseDurationEnv("JWT_ACCESS_TTL", "15m")
+	accessTTL, err := parseDurationEnv("JWT_ACCESS_TTL", "1h")
 	if err != nil {
 		return Config{}, err
 	}
