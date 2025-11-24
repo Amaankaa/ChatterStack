@@ -29,6 +29,7 @@ func (h *RoomHandler) RegisterRoutes(group *gin.RouterGroup) {
 	group.POST("/:roomID/members", h.addMember)
 	group.DELETE("/:roomID/members/:userID", h.removeMember)
 	group.GET("/:roomID/members", h.listMembers)
+	group.DELETE("/:roomID", h.deleteRoom)
 }
 
 func (h *RoomHandler) search(c *gin.Context) {
@@ -188,4 +189,24 @@ func (h *RoomHandler) listMembers(c *gin.Context) {
 		return
 	}
 	c.JSON(http.StatusOK, gin.H{"members": toRoomMemberPayloads(members)})
+}
+
+func (h *RoomHandler) deleteRoom(c *gin.Context) {
+	userID, ok := currentUserID(c)
+	if !ok {
+		respondJSONError(c, http.StatusUnauthorized, "unauthorized")
+		return
+	}
+
+	roomID := c.Param("roomID")
+	if err := h.roomUC.Delete(c.Request.Context(), roomID, userID); err != nil {
+		status, msg := mapRoomError(err)
+		if status == http.StatusInternalServerError {
+			respondInternalServerError(c, err)
+			return
+		}
+		respondJSONError(c, status, msg)
+		return
+	}
+	c.Status(http.StatusNoContent)
 }

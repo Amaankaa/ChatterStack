@@ -17,6 +17,8 @@ var (
 	ErrInvalidMemberUser = errors.New("rooms: member user id is required")
 	ErrInvalidUserID     = errors.New("rooms: user id is required")
 	ErrDirectMessageSelf = errors.New("rooms: direct message requires two distinct users")
+	ErrRoomNotFound      = errors.New("rooms: room not found")
+	ErrDeleteNotAllowed  = errors.New("rooms: only the creator can delete this room")
 )
 
 const (
@@ -32,6 +34,8 @@ type roomRepository interface {
 	ListMembers(ctx context.Context, roomID string) ([]models.RoomMember, error)
 	Search(ctx context.Context, userID, query string, limit int) ([]models.Room, error)
 	FindDirectRoom(ctx context.Context, userA, userB string) (*models.Room, error)
+	GetByID(ctx context.Context, roomID string) (*models.Room, error)
+	Delete(ctx context.Context, roomID string) error
 }
 
 type service struct {
@@ -148,6 +152,36 @@ func (s *service) EnsureDirectRoom(ctx context.Context, userA, userB string) (*m
 		return nil, false, err
 	}
 	return room, true, nil
+}
+
+func (s *service) Delete(ctx context.Context, roomID, requesterID string) error {
+	roomID = strings.TrimSpace(roomID)
+	requesterID = strings.TrimSpace(requesterID)
+	if roomID == "" {
+		return errors.New("rooms: room id is required")
+	}
+	if requesterID == "" {
+		return ErrInvalidUserID
+	}
+
+	room, err := s.repo.GetByID(ctx, roomID)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return ErrRoomNotFound
+		}
+		return err
+	}
+	if room.CreatedBy != requesterID {
+		return ErrDeleteNotAllowed
+	}
+
+	if err := s.repo.Delete(ctx, roomID); err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return ErrRoomNotFound
+		}
+		return err
+	}
+	return nil
 }
 
 func normalizePair(a, b string) (string, string) {

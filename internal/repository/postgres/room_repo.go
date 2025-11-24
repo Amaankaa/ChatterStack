@@ -5,6 +5,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5"
 
 	"chatterstack/internal/domain/models"
 )
@@ -68,6 +69,29 @@ func (r *RoomRepository) RemoveMember(ctx context.Context, roomID, userID string
 	_, err := r.pool.Exec(ctx,
 		`DELETE FROM room_members WHERE room_id=$1 AND user_id=$2`, roomID, userID)
 	return err
+}
+
+func (r *RoomRepository) GetByID(ctx context.Context, roomID string) (*models.Room, error) {
+	row := r.pool.QueryRow(ctx,
+		`SELECT id, name, is_group, created_by, created_at FROM rooms WHERE id=$1`, roomID)
+
+	var room models.Room
+	if err := row.Scan(&room.ID, &room.Name, &room.IsGroup, &room.CreatedBy, &room.CreatedAt); err != nil {
+		return nil, err
+	}
+	return &room, nil
+}
+
+func (r *RoomRepository) Delete(ctx context.Context, roomID string) error {
+	cmdTag, err := r.pool.Exec(ctx,
+		`DELETE FROM rooms WHERE id=$1`, roomID)
+	if err != nil {
+		return err
+	}
+	if cmdTag.RowsAffected() == 0 {
+		return pgx.ErrNoRows
+	}
+	return nil
 }
 
 func (r *RoomRepository) ListMembers(ctx context.Context, roomID string) ([]models.RoomMember, error) {

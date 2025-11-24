@@ -131,6 +131,16 @@ All non-auth endpoints require an `Authorization: Bearer {access_token}` header 
   - `204 No Content`: Member removed.
   - `404 Not Found`: Member/room missing.
 
+### Delete Room
+- **DELETE** `/rooms/{roomID}`
+- **Description:** Permanently removes the specified room along with all associated memberships and messages.
+- **Responses:**
+  - `204 No Content`: Room deleted successfully.
+  - `403 Forbidden`: Caller is not the room creator.
+  - `404 Not Found`: Room missing or already deleted.
+  - `400 Bad Request`: Missing room identifier.
+- **Notes:** Only the room creator can delete a room.
+
 ### Search Rooms
 - **GET** `/rooms?q={query}&limit={limit}`
 - **Description:** Lists rooms the caller belongs to, optionally filtered by a partial name match.

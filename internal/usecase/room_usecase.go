@@ -38,3 +38,7 @@ func (uc *RoomUseCase) Search(ctx context.Context, userID, query string, limit i
 func (uc *RoomUseCase) EnsureDirectRoom(ctx context.Context, userA, userB string) (*models.Room, bool, error) {
 	return uc.RoomService.EnsureDirectRoom(ctx, userA, userB)
 }
+
+func (uc *RoomUseCase) Delete(ctx context.Context, roomID, requesterID string) error {
+	return uc.RoomService.Delete(ctx, roomID, requesterID)
+}

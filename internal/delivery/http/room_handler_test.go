@@ -71,6 +71,11 @@ func (m *mockRoomService) EnsureDirectRoom(ctx context.Context, userA, userB str
 	return room, created, err
 }
 
+func (m *mockRoomService) Delete(ctx context.Context, roomID, requesterID string) error {
+	args := m.Called(ctx, roomID, requesterID)
+	return args.Error(0)
+}
+
 type RoomHandlerTestSuite struct {
 	suite.Suite
 
@@ -211,6 +216,41 @@ func (s *RoomHandlerTestSuite) TestEnsureDirectRoomMissingPeer() {
 
 	s.Equal(http.StatusNotFound, res.Code)
 	s.Contains(res.Body.String(), "rooms: user not found")
+}
+
+func (s *RoomHandlerTestSuite) TestDeleteRoomSuccess() {
+	s.service.On("Delete", mock.Anything, "room-1", "user-1").Return(nil).Once()
+
+	req := httptest.NewRequest(http.MethodDelete, "/rooms/room-1", nil)
+	res := httptest.NewRecorder()
+
+	s.router.ServeHTTP(res, req)
+
+	s.Equal(http.StatusNoContent, res.Code)
+}
+
+func (s *RoomHandlerTestSuite) TestDeleteRoomNotFound() {
+	s.service.On("Delete", mock.Anything, "room-missing", "user-1").Return(rooms.ErrRoomNotFound).Once()
+
+	req := httptest.NewRequest(http.MethodDelete, "/rooms/room-missing", nil)
+	res := httptest.NewRecorder()
+
+	s.router.ServeHTTP(res, req)
+
+	s.Equal(http.StatusNotFound, res.Code)
+	s.Contains(res.Body.String(), rooms.ErrRoomNotFound.Error())
+}
+
+func (s *RoomHandlerTestSuite) TestDeleteRoomForbidden() {
+	s.service.On("Delete", mock.Anything, "room-locked", "user-1").Return(rooms.ErrDeleteNotAllowed).Once()
+
+	req := httptest.NewRequest(http.MethodDelete, "/rooms/room-locked", nil)
+	res := httptest.NewRecorder()
+
+	s.router.ServeHTTP(res, req)
+
+	s.Equal(http.StatusForbidden, res.Code)
+	s.Contains(res.Body.String(), rooms.ErrDeleteNotAllowed.Error())
 }
 
 func (s *RoomHandlerTestSuite) TestCreateSuccess() {

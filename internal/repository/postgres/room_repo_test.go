@@ -5,6 +5,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/jackc/pgx/v5"
 	pgxmock "github.com/pashagolub/pgxmock/v3"
 	"github.com/stretchr/testify/require"
 
@@ -131,5 +132,70 @@ func TestRoomRepository_FindDirectRoom(t *testing.T) {
 	require.False(t, room.IsGroup)
 	require.Equal(t, createdAt, room.CreatedAt)
 
+	require.NoError(t, mockPool.ExpectationsWereMet())
+}
+
+func TestRoomRepository_GetByID(t *testing.T) {
+	ctx := context.Background()
+	poolWrapper, mockPool := newPgxMockPool(t)
+	repo := NewRoomRepository(poolWrapper)
+
+	createdAt := time.Date(2024, 4, 1, 11, 0, 0, 0, time.UTC)
+	row := pgxmock.NewRows([]string{"id", "name", "is_group", "created_by", "created_at"}).
+		AddRow("room-1", "General", true, "creator-1", createdAt)
+
+	mockPool.ExpectQuery("SELECT id, name, is_group, created_by, created_at FROM rooms WHERE id=").
+		WithArgs("room-1").
+		WillReturnRows(row)
+
+	room, err := repo.GetByID(ctx, "room-1")
+	require.NoError(t, err)
+	require.Equal(t, "room-1", room.ID)
+	require.Equal(t, "General", room.Name)
+	require.True(t, room.IsGroup)
+	require.Equal(t, createdAt, room.CreatedAt)
+
+	require.NoError(t, mockPool.ExpectationsWereMet())
+}
+
+func TestRoomRepository_GetByIDNotFound(t *testing.T) {
+	ctx := context.Background()
+	poolWrapper, mockPool := newPgxMockPool(t)
+	repo := NewRoomRepository(poolWrapper)
+
+	mockPool.ExpectQuery("SELECT id, name, is_group, created_by, created_at FROM rooms WHERE id=").
+		WithArgs("missing-room").
+		WillReturnError(pgx.ErrNoRows)
+
+	room, err := repo.GetByID(ctx, "missing-room")
+	require.ErrorIs(t, err, pgx.ErrNoRows)
+	require.Nil(t, room)
+	require.NoError(t, mockPool.ExpectationsWereMet())
+}
+
+func TestRoomRepository_Delete(t *testing.T) {
+	ctx := context.Background()
+	poolWrapper, mockPool := newPgxMockPool(t)
+	repo := NewRoomRepository(poolWrapper)
+
+	mockPool.ExpectExec("DELETE FROM rooms").
+		WithArgs("room-1").
+		WillReturnResult(pgxmock.NewResult("DELETE", 1))
+
+	require.NoError(t, repo.Delete(ctx, "room-1"))
+	require.NoError(t, mockPool.ExpectationsWereMet())
+}
+
+func TestRoomRepository_DeleteMissingRoom(t *testing.T) {
+	ctx := context.Background()
+	poolWrapper, mockPool := newPgxMockPool(t)
+	repo := NewRoomRepository(poolWrapper)
+
+	mockPool.ExpectExec("DELETE FROM rooms").
+		WithArgs("room-absent").
+		WillReturnResult(pgxmock.NewResult("DELETE", 0))
+
+	err := repo.Delete(ctx, "room-absent")
+	require.ErrorIs(t, err, pgx.ErrNoRows)
 	require.NoError(t, mockPool.ExpectationsWereMet())
 }

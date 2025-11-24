@@ -150,6 +150,10 @@ func mapRoomError(err error) (int, string) {
 		errors.Is(err, rooms.ErrInvalidUserID),
 		errors.Is(err, rooms.ErrDirectMessageSelf):
 		return http.StatusBadRequest, err.Error()
+	case errors.Is(err, rooms.ErrRoomNotFound):
+		return http.StatusNotFound, err.Error()
+	case errors.Is(err, rooms.ErrDeleteNotAllowed):
+		return http.StatusForbidden, err.Error()
 	default:
 		if err != nil && strings.HasPrefix(err.Error(), "rooms:") {
 			return http.StatusBadRequest, err.Error()
