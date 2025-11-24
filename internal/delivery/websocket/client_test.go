@@ -38,6 +38,7 @@ func (s *stubMessageSender) Send(_ context.Context, input messages.SendMessageIn
 		Status:      models.MessageStatusSent,
 		CreatedAt:   time.Now().UTC(),
 	}
+	msg.UpdatedAt = msg.CreatedAt
 
 	if s.hub != nil {
 		event, err := Event{Type: EventReceiveMessage, Data: receiveMessagePayload{
@@ -48,6 +49,7 @@ func (s *stubMessageSender) Send(_ context.Context, input messages.SendMessageIn
 			Attachments: toPayloadAttachments(msg.Attachments),
 			Status:      msg.Status,
 			CreatedAt:   msg.CreatedAt,
+			UpdatedAt:   msg.UpdatedAt,
 		}}.Encode()
 		if err == nil {
 			s.hub.BroadcastToRoom(msg.RoomID, event)
@@ -62,10 +64,11 @@ func TestNewClientInitialisation(t *testing.T) {
 
 	hub := NewHub()
 	sender := newStubMessageSender(nil)
-	client := NewClient(nil, hub, "user-1", []string{"room-1"}, sender)
+	client := NewClient(nil, hub, "user-1", []string{"room-1"}, sender, "alice")
 
 	require.Equal(t, hub, client.hub)
 	require.Equal(t, "user-1", client.UserID)
+	require.Equal(t, "alice", client.Username)
 	require.Equal(t, []string{"room-1"}, client.Rooms)
 	require.NotNil(t, client.Send)
 	require.Equal(t, 256, cap(client.Send))
@@ -89,7 +92,7 @@ func TestClientReadPumpBroadcastsAndEchoes(t *testing.T) {
 			return
 		}
 
-		client := NewClient(conn, hub, "user-1", []string{"room-1"}, sender)
+		client := NewClient(conn, hub, "user-1", []string{"room-1"}, sender, "alice")
 		hub.Register(client)
 
 		go client.WritePump()
@@ -123,8 +126,51 @@ func TestClientReadPumpBroadcastsAndEchoes(t *testing.T) {
 	require.Equal(t, "hello world", envelope.Data["content"])
 	require.Equal(t, "room-1", envelope.Data["room_id"])
 	require.Equal(t, "user-1", envelope.Data["sender_id"])
+	require.NotEmpty(t, envelope.Data["updated_at"])
 
 	require.Equal(t, "room-1", sender.last.RoomID)
 	require.Equal(t, "user-1", sender.last.SenderID)
 	require.Equal(t, "hello world", sender.last.Content)
+}
+
+func TestClientTypingEventsBroadcastToOthers(t *testing.T) {
+	hub := NewHub()
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	go hub.Run(ctx)
+
+	clientA := NewClient(nil, hub, "user-1", []string{"room-1"}, nil, "Alice")
+	clientB := NewClient(nil, hub, "user-2", []string{"room-1"}, nil, "Bob")
+
+	hub.Register(clientA)
+	hub.Register(clientB)
+
+	require.Eventually(t, func() bool {
+		hub.mu.RLock()
+		defer hub.mu.RUnlock()
+		return len(hub.rooms["room-1"]) == 2
+	}, time.Second, 10*time.Millisecond)
+
+	clientA.handleTypingEvent(EventTypingStart, typingEventPayload{RoomID: "room-1"})
+
+	select {
+	case raw := <-clientB.Send:
+		var envelope struct {
+			Event EventType         `json:"event"`
+			Data  map[string]string `json:"data"`
+		}
+		require.NoError(t, json.Unmarshal(raw, &envelope))
+		require.Equal(t, EventTypingStart, envelope.Event)
+		require.Equal(t, "Alice", envelope.Data["username"])
+		require.Equal(t, "room-1", envelope.Data["room_id"])
+	case <-time.After(time.Second):
+		t.Fatal("expected typing event for clientB")
+	}
+
+	select {
+	case <-clientA.Send:
+		t.Fatal("did not expect sender to receive typing event")
+	default:
+	}
 }

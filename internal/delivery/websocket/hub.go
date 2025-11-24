@@ -7,8 +7,9 @@ import (
 )
 
 type Broadcast struct {
-	RoomID string
-	Data   []byte
+	RoomID  string
+	Data    []byte
+	Exclude *Client
 }
 
 // Hub orchestrates websocket clients and room broadcasts.
@@ -65,6 +66,11 @@ func (h *Hub) BroadcastToRoom(roomID string, data []byte) {
 	h.broadcast <- Broadcast{RoomID: roomID, Data: data}
 }
 
+// BroadcastToRoomExcept enqueues a room message while omitting a specific client.
+func (h *Hub) BroadcastToRoomExcept(roomID string, data []byte, exclude *Client) {
+	h.broadcast <- Broadcast{RoomID: roomID, Data: data, Exclude: exclude}
+}
+
 func (h *Hub) addClient(client *Client) {
 	h.mu.Lock()
 	defer h.mu.Unlock()
@@ -101,6 +107,9 @@ func (h *Hub) sendToRoom(msg Broadcast) {
 
 	targets := h.rooms[msg.RoomID]
 	for client := range targets {
+		if msg.Exclude != nil && client == msg.Exclude {
+			continue
+		}
 		select {
 		case client.Send <- msg.Data:
 		default:

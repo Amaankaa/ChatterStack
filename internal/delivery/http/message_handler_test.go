@@ -68,6 +68,18 @@ func (m *mockMessageService) Search(ctx context.Context, userID, roomID, query s
 	return nil, args.Error(1)
 }
 
+func (m *mockMessageService) Edit(ctx context.Context, messageID, userID, content string) (*models.Message, error) {
+	args := m.Called(ctx, messageID, userID, content)
+	msg, _ := args.Get(0).(*models.Message)
+	return msg, args.Error(1)
+}
+
+func (m *mockMessageService) Delete(ctx context.Context, messageID, userID string) (*models.Message, error) {
+	args := m.Called(ctx, messageID, userID)
+	msg, _ := args.Get(0).(*models.Message)
+	return msg, args.Error(1)
+}
+
 type MessageHandlerTestSuite struct {
 	suite.Suite
 
@@ -114,6 +126,7 @@ func (s *MessageHandlerTestSuite) TestSendSuccess() {
 		Attachments: expected.Attachments,
 		Status:      models.MessageStatusSent,
 		CreatedAt:   createdAt,
+		UpdatedAt:   createdAt,
 	}
 
 	s.service.On("Send", mock.Anything, expected).Return(result, nil).Once()
@@ -146,6 +159,7 @@ func (s *MessageHandlerTestSuite) TestSendSuccess() {
 	s.Equal(result.Content, resp.Content)
 	s.Equal(result.Status, resp.Status)
 	s.Equal(result.CreatedAt, resp.CreatedAt)
+	s.Equal(result.UpdatedAt, resp.UpdatedAt)
 	s.Len(resp.Attachments, 1)
 	s.Equal(result.Attachments[0].URL, resp.Attachments[0].URL)
 }

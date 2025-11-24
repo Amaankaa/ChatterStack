@@ -88,6 +88,8 @@ func TestStartMessageRelayBroadcastsMessages(t *testing.T) {
 		require.Equal(t, "room-1", envelope.Data["room_id"])
 		require.Equal(t, "user-1", envelope.Data["sender_id"])
 		require.Equal(t, "hi", envelope.Data["content"])
+		_, ok := envelope.Data["updated_at"]
+		require.True(t, ok, "expected updated_at in payload")
 	case <-time.After(time.Second):
 		t.Fatal("expected broadcast message")
 	}
@@ -98,5 +100,56 @@ func TestStartMessageRelayBroadcastsMessages(t *testing.T) {
 	case <-subscriber.closed:
 	case <-time.After(time.Second):
 		t.Fatal("expected subscriber close")
+	}
+}
+
+func TestStartMessageRelayBroadcastsDeleteEvents(t *testing.T) {
+	hub := NewHub()
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	go hub.Run(ctx)
+
+	subscriber := newFakePatternSubscriber()
+	StartMessageRelay(ctx, hub, subscriber)
+
+	require.Eventually(t, func() bool { return len(subscriber.patterns) == 1 }, time.Second, 10*time.Millisecond)
+
+	client := &Client{
+		Send:    make(chan []byte, 1),
+		Rooms:   []string{"room-1"},
+		roomSet: map[string]struct{}{"room-1": {}},
+	}
+	hub.Register(client)
+
+	require.Eventually(t, func() bool {
+		hub.mu.RLock()
+		defer hub.mu.RUnlock()
+		return len(hub.rooms["room-1"]) == 1
+	}, time.Second, 10*time.Millisecond)
+
+	payload, err := json.Marshal(map[string]any{
+		"type": "message.deleted",
+		"message": map[string]any{
+			"id":      "msg-1",
+			"room_id": "room-1",
+		},
+	})
+	require.NoError(t, err)
+
+	subscriber.publish(payload)
+
+	select {
+	case data := <-client.Send:
+		var envelope struct {
+			Event EventType         `json:"event"`
+			Data  map[string]string `json:"data"`
+		}
+		require.NoError(t, json.Unmarshal(data, &envelope))
+		require.Equal(t, EventMessageDeleted, envelope.Event)
+		require.Equal(t, "msg-1", envelope.Data["id"])
+		require.Equal(t, "room-1", envelope.Data["room_id"])
+	case <-time.After(time.Second):
+		t.Fatal("expected delete broadcast message")
 	}
 }

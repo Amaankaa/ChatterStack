@@ -178,10 +178,12 @@ func startWebsocketServer(ctx context.Context, cfg config.Config) error {
 	pubsub := redisrepo.NewPubSub(redisClient)
 
 	authService := auth.NewService(userRepo, cache, cfg.JWT.AccessTTL, cfg.JWT.RefreshTTL)
+	userService := users.NewService(userRepo)
 	roomService := rooms.NewService(roomRepo)
 	messageService := messages.NewService(messageRepo, pubsub)
 
 	authUC := usecase.NewAuthUseCase(authService)
+	userUC := usecase.NewUserUseCase(userService)
 	roomUC := usecase.NewRoomUseCase(roomService)
 	messageUC := usecase.NewMessageUseCase(messageService)
 
@@ -229,7 +231,14 @@ func startWebsocketServer(ctx context.Context, cfg config.Config) error {
 			return
 		}
 
-		client := wsdelivery.NewClient(conn, hub, userID, allowed, messageUC)
+		profile, err := userUC.GetProfile(r.Context(), userID)
+		if err != nil {
+			log.Printf("websocket: fetch user profile failed: %v", err)
+			http.Error(w, "user not found", http.StatusUnauthorized)
+			return
+		}
+
+		client := wsdelivery.NewClient(conn, hub, userID, allowed, messageUC, profile.Username)
 		hub.Register(client)
 
 		go client.WritePump()

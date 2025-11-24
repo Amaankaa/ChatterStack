@@ -21,11 +21,12 @@ type MessageSender interface {
 
 // Client represents a connected websocket participant.
 type Client struct {
-	Conn    *websocket.Conn
-	Send    chan []byte
-	UserID  string
-	Rooms   []string
-	limiter *rate.Limiter
+	Conn     *websocket.Conn
+	Send     chan []byte
+	UserID   string
+	Username string
+	Rooms    []string
+	limiter  *rate.Limiter
 
 	hub     *Hub
 	sender  MessageSender
@@ -40,21 +41,25 @@ const (
 )
 
 // NewClient wraps a websocket connection and attaches it to the hub.
-func NewClient(conn *websocket.Conn, hub *Hub, userID string, rooms []string, sender MessageSender) *Client {
+func NewClient(conn *websocket.Conn, hub *Hub, userID string, rooms []string, sender MessageSender, username string) *Client {
 	roomSet := make(map[string]struct{}, len(rooms))
 	for _, room := range rooms {
 		roomSet[room] = struct{}{}
 	}
+	if strings.TrimSpace(username) == "" {
+		username = userID
+	}
 
 	return &Client{
-		Conn:    conn,
-		Send:    make(chan []byte, 256),
-		UserID:  userID,
-		Rooms:   rooms,
-		limiter: rate.NewLimiter(rate.Every(200*time.Millisecond), 5),
-		hub:     hub,
-		sender:  sender,
-		roomSet: roomSet,
+		Conn:     conn,
+		Send:     make(chan []byte, 256),
+		UserID:   userID,
+		Username: username,
+		Rooms:    rooms,
+		limiter:  rate.NewLimiter(rate.Every(200*time.Millisecond), 5),
+		hub:      hub,
+		sender:   sender,
+		roomSet:  roomSet,
 	}
 }
 
@@ -107,6 +112,15 @@ func (c *Client) ReadPump(ctx context.Context) {
 				continue
 			}
 			c.handleSendMessage(ctx, payload)
+		case EventTypingStart, EventTypingStop:
+			var payload typingEventPayload
+			if len(envelope.Data) > 0 {
+				if err := json.Unmarshal(envelope.Data, &payload); err != nil {
+					log.Printf("websocket: malformed %s payload: %v", envelope.Event, err)
+					continue
+				}
+			}
+			c.handleTypingEvent(envelope.Event, payload)
 		default:
 			log.Printf("websocket: unsupported event %q for user %s", envelope.Event, c.UserID)
 		}
@@ -198,6 +212,7 @@ func (c *Client) handleSendMessage(ctx context.Context, payload sendMessagePaylo
 		Attachments: toPayloadAttachments(msg.Attachments),
 		Status:      msg.Status,
 		CreatedAt:   msg.CreatedAt,
+		UpdatedAt:   msg.UpdatedAt,
 	}}.Encode()
 	if err != nil {
 		log.Printf("websocket: encode receive_message event failed: %v", err)
@@ -205,6 +220,39 @@ func (c *Client) handleSendMessage(ctx context.Context, payload sendMessagePaylo
 	}
 
 	c.hub.BroadcastToRoom(msg.RoomID, eventPayload)
+}
+
+func (c *Client) handleTypingEvent(event EventType, payload typingEventPayload) {
+	roomID := strings.TrimSpace(payload.RoomID)
+	if roomID == "" {
+		if len(c.Rooms) == 1 {
+			roomID = c.Rooms[0]
+		} else {
+			log.Printf("websocket: missing room_id for %s event from user %s", event, c.UserID)
+			return
+		}
+	}
+	if !c.isMember(roomID) {
+		log.Printf("websocket: user %s attempted %s in unauthorized room %s", c.UserID, event, roomID)
+		return
+	}
+
+	if c.hub == nil {
+		return
+	}
+
+	notice := typingBroadcastPayload{
+		Username: c.Username,
+		RoomID:   roomID,
+	}
+
+	encoded, err := Event{Type: event, Data: notice}.Encode()
+	if err != nil {
+		log.Printf("websocket: encode %s event failed: %v", event, err)
+		return
+	}
+
+	c.hub.BroadcastToRoomExcept(roomID, encoded, c)
 }
 
 func (c *Client) isMember(roomID string) bool {

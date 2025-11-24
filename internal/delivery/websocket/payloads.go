@@ -27,6 +27,16 @@ type receiveMessagePayload struct {
 	Attachments []attachmentPayload  `json:"attachments,omitempty"`
 	Status      models.MessageStatus `json:"status"`
 	CreatedAt   time.Time            `json:"created_at"`
+	UpdatedAt   time.Time            `json:"updated_at"`
+}
+
+type typingEventPayload struct {
+	RoomID string `json:"room_id,omitempty"`
+}
+
+type typingBroadcastPayload struct {
+	Username string `json:"username"`
+	RoomID   string `json:"room_id,omitempty"`
 }
 
 func toDomainAttachments(list []attachmentPayload) []models.Attachment {

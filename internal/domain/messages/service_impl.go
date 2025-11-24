@@ -8,6 +8,8 @@ import (
 	"strings"
 	"time"
 
+	"github.com/jackc/pgx/v5"
+
 	"chatterstack/internal/domain/models"
 )
 
@@ -23,6 +25,9 @@ var (
 	ErrInvalidMessageID = errors.New("messages: message id is required")
 	ErrInvalidUserID    = errors.New("messages: user id is required")
 	ErrInvalidSearch    = errors.New("messages: search query is required")
+	ErrMessageNotFound  = errors.New("messages: message not found")
+	ErrEditNotAllowed   = errors.New("messages: message edit not allowed")
+	ErrDeleteNotAllowed = errors.New("messages: message delete not allowed")
 )
 
 // messageRepository outlines the persistence operations needed by the domain service.
@@ -33,6 +38,9 @@ type messageRepository interface {
 	UpdateStatus(ctx context.Context, id string, status models.MessageStatus) error
 	UpsertReceipt(ctx context.Context, receipt *models.MessageReceipt) error
 	Search(ctx context.Context, userID, roomID, query string, limit int) ([]models.Message, error)
+	GetByID(ctx context.Context, id string) (*models.Message, error)
+	UpdateContent(ctx context.Context, id, content string) (*models.Message, error)
+	Delete(ctx context.Context, id string) error
 }
 
 // publisher emits events to interested subscribers (e.g. via Redis pub/sub).
@@ -74,11 +82,7 @@ func (s *service) Send(ctx context.Context, payload SendMessageInput) (*models.M
 	}
 
 	if s.pub != nil {
-		if data, err := json.Marshal(msg); err == nil {
-			if err := s.pub.Publish(ctx, roomChannel(msg.RoomID), data); err != nil {
-				return nil, err
-			}
-		} else {
+		if err := s.publishRoomEvent(ctx, msg.RoomID, msg); err != nil {
 			return nil, err
 		}
 	}
@@ -175,6 +179,94 @@ func (s *service) Search(ctx context.Context, userID, roomID, query string, limi
 	return s.repo.Search(ctx, userID, roomID, query, limit)
 }
 
+func (s *service) Edit(ctx context.Context, messageID, userID, content string) (*models.Message, error) {
+	messageID = strings.TrimSpace(messageID)
+	if messageID == "" {
+		return nil, ErrInvalidMessageID
+	}
+	userID = strings.TrimSpace(userID)
+	if userID == "" {
+		return nil, ErrInvalidUserID
+	}
+	content = strings.TrimSpace(content)
+	if content == "" {
+		return nil, ErrInvalidContent
+	}
+
+	msg, err := s.repo.GetByID(ctx, messageID)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return nil, ErrMessageNotFound
+		}
+		return nil, err
+	}
+	if msg.SenderID != userID {
+		return nil, ErrEditNotAllowed
+	}
+
+	updated, err := s.repo.UpdateContent(ctx, messageID, content)
+	if err != nil {
+		return nil, err
+	}
+
+	if s.pub != nil {
+		if err := s.publishRoomEvent(ctx, updated.RoomID, updated); err != nil {
+			return nil, err
+		}
+	}
+
+	return updated, nil
+}
+
+func (s *service) Delete(ctx context.Context, messageID, userID string) (*models.Message, error) {
+	messageID = strings.TrimSpace(messageID)
+	if messageID == "" {
+		return nil, ErrInvalidMessageID
+	}
+	userID = strings.TrimSpace(userID)
+	if userID == "" {
+		return nil, ErrInvalidUserID
+	}
+
+	msg, err := s.repo.GetByID(ctx, messageID)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return nil, ErrMessageNotFound
+		}
+		return nil, err
+	}
+	if msg.SenderID != userID {
+		return nil, ErrDeleteNotAllowed
+	}
+
+	if err := s.repo.Delete(ctx, messageID); err != nil {
+		return nil, err
+	}
+
+	if s.pub != nil {
+		event := map[string]any{
+			"type": "message.deleted",
+			"message": map[string]any{
+				"id":      msg.ID,
+				"room_id": msg.RoomID,
+			},
+		}
+		if err := s.publishRoomEvent(ctx, msg.RoomID, event); err != nil {
+			return nil, err
+		}
+	}
+
+	return msg, nil
+}
+
 func roomChannel(roomID string) string {
 	return fmt.Sprintf("rooms:%s:messages", roomID)
+}
+
+func (s *service) publishRoomEvent(ctx context.Context, roomID string, payload any) error {
+	data, err := json.Marshal(payload)
+	if err != nil {
+		return err
+	}
+	return s.pub.Publish(ctx, roomChannel(roomID), data)
 }

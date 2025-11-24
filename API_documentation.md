@@ -18,8 +18,6 @@ All non-auth endpoints require an `Authorization: Bearer {access_token}` header 
   }
   ```
 - **Responses:**
-  - `201 Created`: Returns the created user (without password hash).
-  - `400 Bad Request`: Missing/invalid fields.
   - `409 Conflict`: Email already in use.
 
 ### Login
@@ -32,10 +30,31 @@ All non-auth endpoints require an `Authorization: Bearer {access_token}` header 
   }
   ```
 - **Responses:**
-  - `200 OK`: Returns token pair `{ access_token, refresh_token }`.
-  - `401 Unauthorized`: Invalid credentials.
+  - `201 Created`: Returns stored message including `created_at` and `updated_at` timestamps.
 
 ### Refresh Token
+### Edit Message
+- **PATCH** `/rooms/{roomID}/messages/{messageID}`
+- **Request Body:**
+  ```json
+  {
+    "content": "string"
+  }
+  ```
+- **Description:** Allows the original sender to update the textual content of their message. Attachments are immutable.
+- **Responses:**
+  - `200 OK`: Returns the updated message with refreshed `updated_at`.
+  - `400 Bad Request`: Validation errors (empty content, invalid IDs).
+  - `403 Forbidden`: Caller is not the message author.
+  - `404 Not Found`: Message missing in the specified room.
+
+### Delete Message
+- **DELETE** `/rooms/{roomID}/messages/{messageID}`
+- **Description:** Permanently removes a message authored by the caller.
+- **Responses:**
+  - `204 No Content`: Message deleted successfully.
+  - `403 Forbidden`: Caller is not the message author.
+  - `404 Not Found`: Message missing in the specified room.
 - **POST** `/auth/refresh`
 - **Request Body:**
   ```json
@@ -48,7 +67,8 @@ All non-auth endpoints require an `Authorization: Bearer {access_token}` header 
   - `401 Unauthorized`: Invalid/expired refresh token.
 
 ### Logout
-- **POST** `/auth/logout`
+      "created_at": "RFC3339 timestamp",
+      "updated_at": "RFC3339 timestamp"
 - **Request Body:**
   ```json
   {
@@ -58,6 +78,18 @@ All non-auth endpoints require an `Authorization: Bearer {access_token}` header 
 - **Responses:**
   - `204 No Content`: Session invalidated.
   - `400 Bad Request`: Missing user ID.
+Additional server-emitted events include:
+
+- **`"message.deleted"`** — broadcast after a sender removes their message.
+  ```json
+  {
+    "event": "message.deleted",
+    "data": {
+      "id": "string",
+      "room_id": "string"
+    }
+  }
+  ```
 
 
 ## User Endpoints (Protected)

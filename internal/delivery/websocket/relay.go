@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"log"
+	"strings"
 
 	"chatterstack/internal/domain/models"
 
@@ -42,6 +43,41 @@ func StartMessageRelay(ctx context.Context, hub *Hub, subscriber PatternSubscrib
 					return
 				}
 
+				var envelope struct {
+					Type string `json:"type"`
+				}
+				if err := json.Unmarshal([]byte(msg.Payload), &envelope); err == nil && envelope.Type != "" {
+					switch envelope.Type {
+					case "message.deleted":
+						var deleted struct {
+							Message struct {
+								ID     string `json:"id"`
+								RoomID string `json:"room_id"`
+							} `json:"message"`
+						}
+						if err := json.Unmarshal([]byte(msg.Payload), &deleted); err != nil {
+							log.Printf("websocket: decode message.deleted payload failed: %v", err)
+							continue
+						}
+						roomID := strings.TrimSpace(deleted.Message.RoomID)
+						if roomID == "" {
+							continue
+						}
+						event, err := Event{Type: EventMessageDeleted, Data: map[string]string{
+							"id":      deleted.Message.ID,
+							"room_id": roomID,
+						}}.Encode()
+						if err != nil {
+							log.Printf("websocket: encode message.deleted event failed: %v", err)
+							continue
+						}
+						hub.BroadcastToRoom(roomID, event)
+					default:
+						log.Printf("websocket: unhandled room event type %q", envelope.Type)
+					}
+					continue
+				}
+
 				var payload models.Message
 				if err := json.Unmarshal([]byte(msg.Payload), &payload); err != nil {
 					log.Printf("websocket: invalid redis message payload: %v", err)
@@ -59,6 +95,7 @@ func StartMessageRelay(ctx context.Context, hub *Hub, subscriber PatternSubscrib
 					Attachments: toPayloadAttachments(payload.Attachments),
 					Status:      payload.Status,
 					CreatedAt:   payload.CreatedAt,
+					UpdatedAt:   payload.UpdatedAt,
 				}}.Encode()
 				if err != nil {
 					log.Printf("websocket: encode redis relay event failed: %v", err)

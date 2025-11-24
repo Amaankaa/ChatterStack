@@ -23,6 +23,7 @@ type Message struct {
 	Attachments []Attachment
 	Status      MessageStatus
 	CreatedAt   time.Time
+	UpdatedAt   time.Time
 }
 
 // Attachment represents supplemental payload metadata for a message.

@@ -34,7 +34,8 @@ CREATE TABLE messages (
     sender_id    UUID NOT NULL REFERENCES users(id),
     content      TEXT NOT NULL,
     status       TEXT NOT NULL,
-    created_at   TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    created_at   TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_at   TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
 CREATE INDEX idx_messages_room_created ON messages(room_id, created_at DESC);

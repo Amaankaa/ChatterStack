@@ -38,3 +38,11 @@ func (uc *MessageUseCase) MarkRead(ctx context.Context, messageID, userID string
 func (uc *MessageUseCase) Search(ctx context.Context, userID, roomID, query string, limit int) ([]models.Message, error) {
 	return uc.MessageService.Search(ctx, userID, roomID, query, limit)
 }
+
+func (uc *MessageUseCase) Edit(ctx context.Context, messageID, userID, content string) (*models.Message, error) {
+	return uc.MessageService.Edit(ctx, messageID, userID, content)
+}
+
+func (uc *MessageUseCase) Delete(ctx context.Context, messageID, userID string) (*models.Message, error) {
+	return uc.MessageService.Delete(ctx, messageID, userID)
+}

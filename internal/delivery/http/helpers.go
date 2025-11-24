@@ -48,6 +48,7 @@ type messagePayload struct {
 	Attachments []attachmentPayload  `json:"attachments,omitempty"`
 	Status      models.MessageStatus `json:"status"`
 	CreatedAt   time.Time            `json:"created_at"`
+	UpdatedAt   time.Time            `json:"updated_at"`
 }
 
 type roomPayload struct {
@@ -120,6 +121,11 @@ func mapMessageError(err error) (int, string) {
 		errors.Is(err, messages.ErrInvalidUserID),
 		errors.Is(err, messages.ErrInvalidSearch):
 		return http.StatusBadRequest, err.Error()
+	case errors.Is(err, messages.ErrMessageNotFound):
+		return http.StatusNotFound, err.Error()
+	case errors.Is(err, messages.ErrEditNotAllowed),
+		errors.Is(err, messages.ErrDeleteNotAllowed):
+		return http.StatusForbidden, err.Error()
 	default:
 		return http.StatusInternalServerError, "internal server error"
 	}
@@ -200,6 +206,7 @@ func toMessagePayload(msg models.Message) messagePayload {
 		Attachments: toAttachmentPayloads(msg.Attachments),
 		Status:      msg.Status,
 		CreatedAt:   msg.CreatedAt,
+		UpdatedAt:   msg.UpdatedAt,
 	}
 }
 

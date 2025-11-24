@@ -27,18 +27,21 @@ func (r *MessageRepository) Create(ctx context.Context, msg *models.Message) err
 	if msg.CreatedAt.IsZero() {
 		msg.CreatedAt = time.Now().UTC()
 	}
+	if msg.UpdatedAt.IsZero() {
+		msg.UpdatedAt = msg.CreatedAt
+	}
 	if msg.Status == "" {
 		msg.Status = models.MessageStatusSent
 	}
 
 	_, err := r.pool.Exec(ctx,
-		`INSERT INTO messages (id, room_id, sender_id, content, status, created_at) VALUES ($1, $2, $3, $4, $5, $6)`, msg.ID, msg.RoomID, msg.SenderID, msg.Content, msg.Status, msg.CreatedAt)
+		`INSERT INTO messages (id, room_id, sender_id, content, status, created_at, updated_at) VALUES ($1, $2, $3, $4, $5, $6, $7)`, msg.ID, msg.RoomID, msg.SenderID, msg.Content, msg.Status, msg.CreatedAt, msg.UpdatedAt)
 	return err
 }
 
 func (r *MessageRepository) ListByRoom(ctx context.Context, roomID string, limit, offset int) ([]models.Message, error) {
 	rows, err := r.pool.Query(ctx,
-		`SELECT id, room_id, sender_id, content, status, created_at
+		`SELECT id, room_id, sender_id, content, status, created_at, updated_at
 		FROM messages
 		WHERE room_id = $1
 		ORDER BY created_at DESC
@@ -52,7 +55,7 @@ func (r *MessageRepository) ListByRoom(ctx context.Context, roomID string, limit
 	var msgs []models.Message
 	for rows.Next() {
 		var m models.Message
-		if err := rows.Scan(&m.ID, &m.RoomID, &m.SenderID, &m.Content, &m.Status, &m.CreatedAt); err != nil {
+		if err := rows.Scan(&m.ID, &m.RoomID, &m.SenderID, &m.Content, &m.Status, &m.CreatedAt, &m.UpdatedAt); err != nil {
 			return nil, err
 		}
 		msgs = append(msgs, m)
@@ -62,12 +65,12 @@ func (r *MessageRepository) ListByRoom(ctx context.Context, roomID string, limit
 
 func (r *MessageRepository) ListAround(ctx context.Context, roomID, messageID string, before, after int) ([]models.Message, error) {
 	row := r.pool.QueryRow(ctx,
-		`SELECT id, room_id, sender_id, content, status, created_at
+		`SELECT id, room_id, sender_id, content, status, created_at, updated_at
 		FROM messages
 		WHERE id = $1`, messageID)
 
 	var target models.Message
-	if err := row.Scan(&target.ID, &target.RoomID, &target.SenderID, &target.Content, &target.Status, &target.CreatedAt); err != nil {
+	if err := row.Scan(&target.ID, &target.RoomID, &target.SenderID, &target.Content, &target.Status, &target.CreatedAt, &target.UpdatedAt); err != nil {
 		return nil, err
 	}
 
@@ -78,7 +81,7 @@ func (r *MessageRepository) ListAround(ctx context.Context, roomID, messageID st
 	beforeMsgs := make([]models.Message, 0, before)
 	if before > 0 {
 		rows, err := r.pool.Query(ctx,
-			`SELECT id, room_id, sender_id, content, status, created_at
+			`SELECT id, room_id, sender_id, content, status, created_at, updated_at
 			FROM messages
 			WHERE room_id = $1 AND created_at < $2
 			ORDER BY created_at DESC
@@ -88,7 +91,7 @@ func (r *MessageRepository) ListAround(ctx context.Context, roomID, messageID st
 		}
 		for rows.Next() {
 			var m models.Message
-			if err := rows.Scan(&m.ID, &m.RoomID, &m.SenderID, &m.Content, &m.Status, &m.CreatedAt); err != nil {
+			if err := rows.Scan(&m.ID, &m.RoomID, &m.SenderID, &m.Content, &m.Status, &m.CreatedAt, &m.UpdatedAt); err != nil {
 				rows.Close()
 				return nil, err
 			}
@@ -108,7 +111,7 @@ func (r *MessageRepository) ListAround(ctx context.Context, roomID, messageID st
 	afterMsgs := make([]models.Message, 0, after)
 	if after > 0 {
 		rows, err := r.pool.Query(ctx,
-			`SELECT id, room_id, sender_id, content, status, created_at
+			`SELECT id, room_id, sender_id, content, status, created_at, updated_at
 			FROM messages
 			WHERE room_id = $1 AND created_at > $2
 			ORDER BY created_at ASC
@@ -118,7 +121,7 @@ func (r *MessageRepository) ListAround(ctx context.Context, roomID, messageID st
 		}
 		for rows.Next() {
 			var m models.Message
-			if err := rows.Scan(&m.ID, &m.RoomID, &m.SenderID, &m.Content, &m.Status, &m.CreatedAt); err != nil {
+			if err := rows.Scan(&m.ID, &m.RoomID, &m.SenderID, &m.Content, &m.Status, &m.CreatedAt, &m.UpdatedAt); err != nil {
 				rows.Close()
 				return nil, err
 			}
@@ -161,7 +164,7 @@ func (r *MessageRepository) UpsertReceipt(ctx context.Context, receipt *models.M
 
 func (r *MessageRepository) Search(ctx context.Context, userID, roomID, query string, limit int) ([]models.Message, error) {
 	rows, err := r.pool.Query(ctx,
-		`SELECT m.id, m.room_id, m.sender_id, m.content, m.status, m.created_at
+		`SELECT m.id, m.room_id, m.sender_id, m.content, m.status, m.created_at, m.updated_at
 		FROM messages m
 		JOIN room_members rm ON m.room_id = rm.room_id
 		WHERE rm.user_id = $1 AND ($2 = '' OR m.room_id::text = $2)
@@ -176,11 +179,43 @@ func (r *MessageRepository) Search(ctx context.Context, userID, roomID, query st
 	var msgs []models.Message
 	for rows.Next() {
 		var m models.Message
-		if err := rows.Scan(&m.ID, &m.RoomID, &m.SenderID, &m.Content, &m.Status, &m.CreatedAt); err != nil {
+		if err := rows.Scan(&m.ID, &m.RoomID, &m.SenderID, &m.Content, &m.Status, &m.CreatedAt, &m.UpdatedAt); err != nil {
 			return nil, err
 		}
 		msgs = append(msgs, m)
 	}
 
 	return msgs, rows.Err()
+}
+
+func (r *MessageRepository) GetByID(ctx context.Context, id string) (*models.Message, error) {
+	row := r.pool.QueryRow(ctx,
+		`SELECT id, room_id, sender_id, content, status, created_at, updated_at
+		FROM messages
+		WHERE id = $1`, id)
+
+	var msg models.Message
+	if err := row.Scan(&msg.ID, &msg.RoomID, &msg.SenderID, &msg.Content, &msg.Status, &msg.CreatedAt, &msg.UpdatedAt); err != nil {
+		return nil, err
+	}
+	return &msg, nil
+}
+
+func (r *MessageRepository) UpdateContent(ctx context.Context, id, content string) (*models.Message, error) {
+	row := r.pool.QueryRow(ctx,
+		`UPDATE messages
+		SET content = $2, updated_at = NOW()
+		WHERE id = $1
+		RETURNING id, room_id, sender_id, content, status, created_at, updated_at`, id, content)
+
+	var msg models.Message
+	if err := row.Scan(&msg.ID, &msg.RoomID, &msg.SenderID, &msg.Content, &msg.Status, &msg.CreatedAt, &msg.UpdatedAt); err != nil {
+		return nil, err
+	}
+	return &msg, nil
+}
+
+func (r *MessageRepository) Delete(ctx context.Context, id string) error {
+	_, err := r.pool.Exec(ctx, `DELETE FROM messages WHERE id = $1`, id)
+	return err
 }

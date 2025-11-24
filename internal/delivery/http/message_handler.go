@@ -28,6 +28,8 @@ func (h *MessageHandler) RegisterRoutes(group *gin.RouterGroup) {
 	group.POST("/:roomID/messages", h.send)
 	group.POST("/:roomID/messages/:messageID/deliver", h.markDelivered)
 	group.POST("/:roomID/messages/:messageID/read", h.markRead)
+	group.PATCH("/:roomID/messages/:messageID", h.edit)
+	group.DELETE("/:roomID/messages/:messageID", h.remove)
 }
 
 // RegisterSearchRoutes exposes message discovery endpoints.
@@ -167,6 +169,70 @@ func (h *MessageHandler) markRead(c *gin.Context) {
 			return
 		}
 		respondJSONError(c, status, msgErr)
+		return
+	}
+
+	c.Status(http.StatusNoContent)
+}
+
+func (h *MessageHandler) edit(c *gin.Context) {
+	messageID := c.Param("messageID")
+	roomID := c.Param("roomID")
+	userID, ok := currentUserID(c)
+	if !ok {
+		respondJSONError(c, http.StatusUnauthorized, "unauthorized")
+		return
+	}
+
+	var req struct {
+		Content string `json:"content"`
+	}
+	if err := c.ShouldBindJSON(&req); err != nil {
+		respondBadRequest(c, "invalid JSON payload")
+		return
+	}
+
+	msg, err := h.messageUC.Edit(c.Request.Context(), messageID, userID, req.Content)
+	if err != nil {
+		status, msgErr := mapMessageError(err)
+		if status == http.StatusInternalServerError {
+			respondInternalServerError(c, err)
+			return
+		}
+		respondJSONError(c, status, msgErr)
+		return
+	}
+
+	if msg.RoomID != roomID {
+		respondJSONError(c, http.StatusNotFound, "messages: message not found")
+		return
+	}
+
+	c.JSON(http.StatusOK, toMessagePayload(*msg))
+}
+
+func (h *MessageHandler) remove(c *gin.Context) {
+	messageID := c.Param("messageID")
+	roomID := c.Param("roomID")
+	userID, ok := currentUserID(c)
+	if !ok {
+		respondJSONError(c, http.StatusUnauthorized, "unauthorized")
+		return
+	}
+
+	msg, err := h.messageUC.Delete(c.Request.Context(), messageID, userID)
+	if err != nil {
+		status, msgErr := mapMessageError(err)
+		if status == http.StatusInternalServerError {
+			respondInternalServerError(c, err)
+			return
+		}
+		respondJSONError(c, status, msgErr)
+		return
+	}
+
+	if msg.RoomID != roomID {
+		respondJSONError(c, http.StatusNotFound, "messages: message not found")
 		return
 	}
 
