@@ -1,6 +1,8 @@
 package http
 
 import (
+	"net/http"
+
 	"github.com/gin-gonic/gin"
 
 	"chatterstack/internal/usecase"
@@ -15,6 +17,10 @@ type Services struct {
 }
 
 func RegisterRoutes(router *gin.Engine, svc Services) {
+	router.GET("/health", func(c *gin.Context) {
+		c.Status(http.StatusOK)
+	})
+
 	api := router.Group("/v1")
 
 	NewAuthHandler(svc.Auth).RegisterRoutes(api.Group("/auth"))
