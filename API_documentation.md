@@ -2,7 +2,7 @@
 
 Base URL: `https://{host}:{port}/v1`
 
-All non-auth endpoints require an `Authorization: Bearer {access_token}` header unless otherwise noted. Access tokens are short-lived JWTs issued by the auth endpoints.
+All protected endpoints require an `Authorization: Bearer {access_token}` header unless otherwise noted. Access tokens are JWTs issued by the auth endpoints and should be treated as short-lived.
 
 ## Authentication Endpoints
 
@@ -18,6 +18,8 @@ All non-auth endpoints require an `Authorization: Bearer {access_token}` header 
   }
   ```
 - **Responses:**
+  - `201 Created`: Returns the created user.
+  - `400 Bad Request`: Validation errors (missing fields, invalid email, weak password).
   - `409 Conflict`: Email already in use.
 
 ### Login
@@ -30,31 +32,10 @@ All non-auth endpoints require an `Authorization: Bearer {access_token}` header 
   }
   ```
 - **Responses:**
-  - `201 Created`: Returns stored message including `created_at` and `updated_at` timestamps.
+  - `200 OK`: Returns `{ "access_token": "...", "refresh_token": "..." }`.
+  - `401 Unauthorized`: Invalid credentials.
 
 ### Refresh Token
-### Edit Message
-- **PATCH** `/rooms/{roomID}/messages/{messageID}`
-- **Request Body:**
-  ```json
-  {
-    "content": "string"
-  }
-  ```
-- **Description:** Allows the original sender to update the textual content of their message. Attachments are immutable.
-- **Responses:**
-  - `200 OK`: Returns the updated message with refreshed `updated_at`.
-  - `400 Bad Request`: Validation errors (empty content, invalid IDs).
-  - `403 Forbidden`: Caller is not the message author.
-  - `404 Not Found`: Message missing in the specified room.
-
-### Delete Message
-- **DELETE** `/rooms/{roomID}/messages/{messageID}`
-- **Description:** Permanently removes a message authored by the caller.
-- **Responses:**
-  - `204 No Content`: Message deleted successfully.
-  - `403 Forbidden`: Caller is not the message author.
-  - `404 Not Found`: Message missing in the specified room.
 - **POST** `/auth/refresh`
 - **Request Body:**
   ```json
@@ -63,12 +44,11 @@ All non-auth endpoints require an `Authorization: Bearer {access_token}` header 
   }
   ```
 - **Responses:**
-  - `200 OK`: Returns new token pair.
-  - `401 Unauthorized`: Invalid/expired refresh token.
+  - `200 OK`: Returns a new token pair.
+  - `401 Unauthorized`: Refresh token missing, expired, or revoked.
 
 ### Logout
-      "created_at": "RFC3339 timestamp",
-      "updated_at": "RFC3339 timestamp"
+- **POST** `/auth/logout`
 - **Request Body:**
   ```json
   {
@@ -76,21 +56,8 @@ All non-auth endpoints require an `Authorization: Bearer {access_token}` header 
   }
   ```
 - **Responses:**
-  - `204 No Content`: Session invalidated.
-  - `400 Bad Request`: Missing user ID.
-Additional server-emitted events include:
-
-- **`"message.deleted"`** — broadcast after a sender removes their message.
-  ```json
-  {
-    "event": "message.deleted",
-    "data": {
-      "id": "string",
-      "room_id": "string"
-    }
-  }
-  ```
-
+  - `204 No Content`: Session invalidated and refresh token revoked.
+  - `400 Bad Request`: Missing `user_id`.
 
 ## User Endpoints (Protected)
 
@@ -119,7 +86,6 @@ Additional server-emitted events include:
   - `204 No Content`: Status updated.
   - `400 Bad Request`: Invalid payload.
   - `404 Not Found`: User missing.
-
 
 ## Room Endpoints (Protected)
 
@@ -161,31 +127,29 @@ Additional server-emitted events include:
 - **DELETE** `/rooms/{roomID}/members/{userID}`
 - **Responses:**
   - `204 No Content`: Member removed.
-  - `404 Not Found`: Member/room missing.
+  - `404 Not Found`: Member or room missing.
 
 ### Delete Room
 - **DELETE** `/rooms/{roomID}`
-- **Description:** Permanently removes the specified room along with all associated memberships and messages.
+- **Description:** Permanently removes the specified room along with memberships and messages.
 - **Responses:**
-  - `204 No Content`: Room deleted successfully.
+  - `204 No Content`: Room deleted.
   - `403 Forbidden`: Caller is not the room creator.
   - `404 Not Found`: Room missing or already deleted.
-  - `400 Bad Request`: Missing room identifier.
-- **Notes:** Only the room creator can delete a room.
 
 ### Search Rooms
 - **GET** `/rooms?q={query}&limit={limit}`
 - **Description:** Lists rooms the caller belongs to, optionally filtered by a partial name match.
 - **Query Parameters:**
   - `q` *(optional)*: Substring to match on room names.
-  - `limit` *(optional)*: Maximum number of results (default 20, max 100).
+  - `limit` *(optional)*: Max results (default 20, max 100).
 - **Responses:**
   - `200 OK`: `{ "rooms": [...] }`.
-  - `400 Bad Request`: Invalid limit or other validation errors.
+  - `400 Bad Request`: Invalid parameters.
 
 ### Ensure Direct Message Room *(Preview)*
 - **POST** `/rooms/direct`
-- **Description:** Returns a one-to-one room between the authenticated user and the requested participant. If a direct room already exists, the same record is returned. Re-issuing the call is idempotent.
+- **Description:** Idempotently returns a one-to-one room between the caller and the requested participant.
 - **Request Body:**
   ```json
   {
@@ -193,20 +157,14 @@ Additional server-emitted events include:
   }
   ```
 - **Responses:**
-  - `200 OK`: Returns the existing direct message room details when already created.
-  - `201 Created`: Returns the newly created direct message room.
-  - `400 Bad Request`: Missing `peer_user_id`, attempting to DM yourself, or validation errors.
-  - `404 Not Found`: Peer user does not exist or caller lacks access.
-
-**Notes**
-- Direct message rooms are always non-group rooms with exactly two members.
-- The server generates a canonical stable name (`dm:{userA}:{userB}`) using a lexicographic pair to avoid duplicates.
-- Future client flows should call this endpoint before sending a private message to ensure the room exists.
-
+  - `200 OK`: Existing direct room returned.
+  - `201 Created`: Newly created direct room returned.
+  - `400 Bad Request`: Invalid payload or attempting to DM yourself.
+  - `404 Not Found`: Peer user missing or inaccessible.
 
 ## Message Endpoints (Protected)
 
-All message endpoints use the authenticated user ID from the bearer token.
+All message endpoints infer the caller from the bearer token.
 
 ### Send Message
 - **POST** `/rooms/{roomID}/messages`
@@ -224,83 +182,175 @@ All message endpoints use the authenticated user ID from the bearer token.
   }
   ```
 - **Responses:**
-  - `201 Created`: Returns stored message.
-  - `400 Bad Request`: Validation errors.
+  - `201 Created`: Returns the stored message, including `created_at` and `updated_at`.
+  - `400 Bad Request`: Validation errors or unauthorized room access.
 
 ### List Messages
 - **GET** `/rooms/{roomID}/messages`
 - **Query Parameters:**
-  - `page` *(optional)*: Defaults to 1 when paginating recent history.
-  - `limit` *(optional)*: Max items per page/window (defaults to 50).
-  - `around_message_id` *(optional)*: When supplied, ignores pagination and returns a window centered on the target message (see below).
+  - `page` *(optional)*: Defaults to 1 when paginating.
+  - `limit` *(optional)*: Defaults to 50.
+  - `around_message_id` *(optional)*: Returns a window centered on the supplied message.
 - **Responses:**
   - `200 OK`: `{ "messages": [...] }`.
-  - `400 Bad Request`: Invalid parameters or message not found in room.
+  - `400 Bad Request`: Invalid parameters or message not found.
 
-**Around Message Window**
+When `around_message_id` is provided, half of the requested window is returned before the anchor and half after, allowing jump-to-message experiences without paging from the top.
 
-When `around_message_id` is provided, the service locates the target message, fetches half of the `limit` before it, the remainder after it, and returns the combined set chronologically. This enables “jump to message” experiences without paging through the entire timeline.
+### Edit Message
+- **PATCH** `/rooms/{roomID}/messages/{messageID}`
+- **Request Body:**
+  ```json
+  {
+    "content": "string"
+  }
+  ```
+- **Description:** Only the original sender can edit message text. Attachments are immutable.
+- **Responses:**
+  - `200 OK`: Returns the updated message with a refreshed `updated_at`.
+  - `400 Bad Request`: Validation errors.
+  - `403 Forbidden`: Caller is not the author.
+  - `404 Not Found`: Message missing in the specified room.
+
+### Delete Message
+- **DELETE** `/rooms/{roomID}/messages/{messageID}`
+- **Description:** Removes a message authored by the caller and broadcasts a deletion event.
+- **Responses:**
+  - `204 No Content`: Message deleted.
+  - `403 Forbidden`: Caller is not the author.
+  - `404 Not Found`: Message missing in the specified room.
 
 ### Mark Delivered
 - **POST** `/rooms/{roomID}/messages/{messageID}/deliver`
 - **Responses:**
   - `204 No Content`: Delivery acknowledged.
-  - `400 Bad Request`: Invalid message ID/user state.
+  - `400 Bad Request`: Invalid identifiers or state.
 
 ### Mark Read
 - **POST** `/rooms/{roomID}/messages/{messageID}/read`
 - **Responses:**
   - `204 No Content`: Read receipt stored.
-  - `400 Bad Request`: Invalid message ID/user state.
+  - `400 Bad Request`: Invalid identifiers or state.
 
 ### Search Messages
 - **GET** `/messages/search?q={query}&room_id={roomID}&limit={limit}`
-- **Description:** Searches message content visible to the caller. Optionally filter to a single room.
+- **Description:** Searches message content the caller is authorized to view.
 - **Query Parameters:**
-  - `q` *(required)*: Case-insensitive substring for message content.
+  - `q` *(required)*: Case-insensitive substring.
   - `room_id` *(optional)*: Restrict search to a room.
-  - `limit` *(optional)*: Maximum results (default 50, max 100).
+  - `limit` *(optional)*: Defaults to 50, max 100.
 - **Responses:**
   - `200 OK`: `{ "messages": [...] }`.
   - `400 Bad Request`: Missing `q` or invalid parameters.
 
+### Message Resource Shape
+
+Unless stated otherwise, message responses return:
+
+```json
+{
+  "id": "string",
+  "room_id": "string",
+  "sender_id": "string",
+  "content": "string",
+  "attachments": [
+    {
+      "id": "string",
+      "message_id": "string",
+      "url": "string",
+      "mime_type": "string",
+      "size_bytes": 123
+    }
+  ],
+  "status": "SENT" | "DELIVERED" | "READ",
+  "created_at": "RFC3339 timestamp",
+  "updated_at": "RFC3339 timestamp"
+}
+```
 
 ## WebSocket Gateway
 
 - **URL:** `ws(s)://{host}:{port}/ws?room_id=room-1&room_id=room-2`
 - **Headers:** `Authorization: Bearer {access_token}`
-- **Upgrade Params:** One or more `room_id` query params specify channels to join. The server verifies membership and rejects unauthorized rooms.
+- **Query Params:** Supply one or more `room_id` values. The server verifies membership before joining rooms.
 
-### Events (JSON)
-- Outbound (server -> client):
-  ```json
-  {
-    "event": "receive_message",
-    "data": {
-      "id": "string",
-      "room_id": "string",
-      "sender_id": "string",
-      "content": "string",
-      "attachments": [...],
-      "status": "SENT" | "DELIVERED" | "READ",
-      "created_at": "RFC3339 timestamp"
-    }
-  }
-  ```
-- Inbound (client -> server):
-  ```json
-  {
-    "event": "send_message",
-    "data": {
-      "room_id": "string",
-      "content": "string",
-      "attachments": [...]
-    }
-  }
-  ```
+All inbound events are JSON objects with an `event` field and a `data` payload. Unknown events are ignored.
 
-Messages sent via HTTP or WebSocket propagate through Redis pub/sub so every connected client in the room receives the `receive_message` event.
+### Inbound Events (client → server)
+
+#### `send_message`
+```json
+{
+  "event": "send_message",
+  "data": {
+    "room_id": "string",
+    "content": "string",
+    "attachments": [
+      { "url": "string", "mime_type": "string", "size_bytes": 123 }
+    ]
+  }
+}
+```
+
+#### `typing_start` and `typing_stop`
+```json
+{
+  "event": "typing_start", // or "typing_stop"
+  "data": {
+    "room_id": "string" // optional when the connection joined exactly one room
+  }
+}
+```
+
+Typing events are rate-limited server side. The sender is never echoed back to avoid flicker in the UI.
+
+### Outbound Events (server → client)
+
+#### `receive_message`
+```json
+{
+  "event": "receive_message",
+  "data": {
+    "id": "string",
+    "room_id": "string",
+    "sender_id": "string",
+    "content": "string",
+    "attachments": [...],
+    "status": "SENT" | "DELIVERED" | "READ",
+    "created_at": "RFC3339 timestamp",
+    "updated_at": "RFC3339 timestamp"
+  }
+}
+```
+
+#### `message.deleted`
+Broadcast when a sender deletes one of their messages.
+
+```json
+{
+  "event": "message.deleted",
+  "data": {
+    "id": "string",
+    "room_id": "string"
+  }
+}
+```
+
+#### `typing_start` and `typing_stop`
+```json
+{
+  "event": "typing_start", // or "typing_stop"
+  "data": {
+    "username": "string",
+    "room_id": "string"
+  }
+}
+```
+
+Typing events are broadcast to all members in the room except the originator. The `username` field reflects the display name supplied during the WebSocket upgrade (falls back to the user ID when a profile lookup fails).
+
+Messages sent over REST or WebSocket propagate through Redis pub/sub so every connected client in a room receives the matching outbound events in real time. Ensure your frontend filters duplicate messages if it performs optimistic updates for the same rooms.
 
 ---
 
-This document reflects the current server implementation. Adjust any base URLs or authentication flows to match your deployment environment.
+This document reflects the current server implementation. Adjust base URLs and authentication flows to match your deployment environment.
