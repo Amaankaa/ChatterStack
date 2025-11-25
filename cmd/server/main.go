@@ -245,6 +245,10 @@ func startWebsocketServer(ctx context.Context, cfg config.Config) error {
 		client.ReadPump(hubCtx)
 	})
 
+	http.HandleFunc("/health", func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	})
+
 	server := &http.Server{
 		Addr:         cfg.Websocket.Address(),
 		ReadTimeout:  15 * time.Second,
