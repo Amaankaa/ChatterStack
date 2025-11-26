@@ -2,6 +2,7 @@ package config
 
 import (
 	"fmt"
+	"net/url"
 	"os"
 	"strconv"
 	"time"
@@ -78,9 +79,7 @@ func Load() (Config, error) {
 			Host: getEnv("WEBSOCKET_HOST", "0.0.0.0"),
 			Port: getEnv("WEBSOCKET_PORT", "8081"),
 		},
-		Postgres: PostgresConfig{
-			DSN: getEnv("POSTGRES_DSN", "postgres://chatterstack:chatterstack@localhost:5432/chatterstack?sslmode=disable"),
-		},
+		Postgres: PostgresConfig{},
 		Redis: RedisConfig{
 			Addr:     getEnv("REDIS_ADDR", "localhost:6379"),
 			Password: os.Getenv("REDIS_PASSWORD"),
@@ -116,6 +115,22 @@ func Load() (Config, error) {
 		return Config{}, err
 	}
 	cfg.RateLimit = RateLimitConfig{Requests: requests, Burst: burst, Window: window}
+
+	// Prefer an explicit POSTGRES_DSN. If not provided, compose it from parts.
+	if dsn := os.Getenv("POSTGRES_DSN"); dsn != "" {
+		cfg.Postgres.DSN = dsn
+	} else {
+		user := getEnv("POSTGRES_USER", "chatterstack")
+		pass := os.Getenv("POSTGRES_PASSWORD")
+		if pass == "" {
+			pass = getEnv("POSTGRES_PASSWORD", "chatterstack")
+		}
+		host := getEnv("POSTGRES_HOST", "localhost")
+		db := getEnv("POSTGRES_DB", "chatterstack")
+		eu := url.QueryEscape(user)
+		ep := url.QueryEscape(pass)
+		cfg.Postgres.DSN = fmt.Sprintf("postgres://%s:%s@%s:5432/%s?sslmode=disable", eu, ep, host, db)
+	}
 
 	return cfg, nil
 }
