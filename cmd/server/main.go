@@ -12,6 +12,8 @@ import (
 	"syscall"
 	"time"
 
+	"sync/atomic"
+
 	"github.com/gin-gonic/gin"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/redis/go-redis/v9"
@@ -70,9 +72,32 @@ func startAPIServer(ctx context.Context, cfg config.Config) error {
 	}
 	defer pool.Close()
 
-	if err := pool.Ping(ctx); err != nil {
-		return fmt.Errorf("ping postgres: %w", err)
-	}
+	// Start background ping for Postgres so the container doesn't exit on
+	// transient startup failures. We log attempts and continue running the
+	// HTTP server so we can inspect logs and let the orchestrator manage
+	// restarts if necessary.
+	var depsReady int32
+	go func() {
+		backoff := time.Second
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			default:
+			}
+			if err := pool.Ping(ctx); err != nil {
+				log.Printf("postgres ping failed: %v; retrying in %s", err, backoff)
+			} else {
+				log.Printf("postgres ping succeeded")
+				break
+			}
+			time.Sleep(backoff)
+			if backoff < 10*time.Second {
+				backoff *= 2
+			}
+		}
+		atomic.StoreInt32(&depsReady, 1)
+	}()
 
 	redisClient := redis.NewClient(&redis.Options{
 		Addr:     cfg.Redis.Addr,
@@ -80,9 +105,28 @@ func startAPIServer(ctx context.Context, cfg config.Config) error {
 	})
 	defer redisClient.Close()
 
-	if err := redisClient.Ping(ctx).Err(); err != nil {
-		return fmt.Errorf("ping redis: %w", err)
-	}
+	// Ping Redis in background as well to avoid exiting the process on
+	// transient connectivity/auth failures during startup.
+	go func() {
+		backoff := time.Second
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			default:
+			}
+			if err := redisClient.Ping(ctx).Err(); err != nil {
+				log.Printf("redis ping failed: %v; retrying in %s", err, backoff)
+			} else {
+				log.Printf("redis ping succeeded")
+				return
+			}
+			time.Sleep(backoff)
+			if backoff < 10*time.Second {
+				backoff *= 2
+			}
+		}
+	}()
 
 	userRepo := postgresrepo.NewUserRepository(pool)
 	roomRepo := postgresrepo.NewRoomRepository(pool)
@@ -157,18 +201,55 @@ func startWebsocketServer(ctx context.Context, cfg config.Config) error {
 		return fmt.Errorf("connect postgres: %w", err)
 	}
 	defer pool.Close()
-	if err := pool.Ping(ctx); err != nil {
-		return fmt.Errorf("ping postgres: %w", err)
-	}
+
+	// Background ping for Postgres (non-fatal) so the websocket process
+	// doesn't exit immediately on transient failures.
+	go func() {
+		backoff := time.Second
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			default:
+			}
+			if err := pool.Ping(ctx); err != nil {
+				log.Printf("postgres ping failed: %v; retrying in %s", err, backoff)
+			} else {
+				log.Printf("postgres ping succeeded")
+				return
+			}
+			time.Sleep(backoff)
+			if backoff < 10*time.Second {
+				backoff *= 2
+			}
+		}
+	}()
 
 	redisClient := redis.NewClient(&redis.Options{
 		Addr:     cfg.Redis.Addr,
 		Password: cfg.Redis.Password,
 	})
 	defer redisClient.Close()
-	if err := redisClient.Ping(ctx).Err(); err != nil {
-		return fmt.Errorf("ping redis: %w", err)
-	}
+	go func() {
+		backoff := time.Second
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			default:
+			}
+			if err := redisClient.Ping(ctx).Err(); err != nil {
+				log.Printf("redis ping failed: %v; retrying in %s", err, backoff)
+			} else {
+				log.Printf("redis ping succeeded")
+				return
+			}
+			time.Sleep(backoff)
+			if backoff < 10*time.Second {
+				backoff *= 2
+			}
+		}
+	}()
 
 	userRepo := postgresrepo.NewUserRepository(pool)
 	roomRepo := postgresrepo.NewRoomRepository(pool)
