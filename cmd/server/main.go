@@ -138,7 +138,7 @@ func startAPIServer(ctx context.Context, cfg config.Config) error {
 
 	authService := auth.NewService(userRepo, cache, cfg.JWT.AccessTTL, cfg.JWT.RefreshTTL)
 	userService := users.NewService(userRepo)
-	roomService := rooms.NewService(roomRepo)
+	roomService := rooms.NewService(roomRepo, pubsub)
 	messageService := messages.NewService(messageRepo, pubsub)
 
 	authUC := usecase.NewAuthUseCase(authService)
@@ -147,7 +147,7 @@ func startAPIServer(ctx context.Context, cfg config.Config) error {
 	messageUC := usecase.NewMessageUseCase(messageService)
 
 	router := gin.New()
-	router.Use(gin.Logger(), gin.Recovery())
+	router.Use(gin.Logger(), gin.Recovery(), middleware.CORS())
 	router.Use(middleware.RateLimit(middleware.RateLimiterConfig{
 		Requests: cfg.RateLimit.Requests,
 		Burst:    cfg.RateLimit.Burst,
@@ -261,7 +261,7 @@ func startWebsocketServer(ctx context.Context, cfg config.Config) error {
 
 	authService := auth.NewService(userRepo, cache, cfg.JWT.AccessTTL, cfg.JWT.RefreshTTL)
 	userService := users.NewService(userRepo)
-	roomService := rooms.NewService(roomRepo)
+	roomService := rooms.NewService(roomRepo, pubsub)
 	messageService := messages.NewService(messageRepo, pubsub)
 
 	authUC := usecase.NewAuthUseCase(authService)

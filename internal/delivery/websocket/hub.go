@@ -21,6 +21,7 @@ type Hub struct {
 	mu      sync.RWMutex
 	clients map[*Client]struct{}
 	rooms   map[string]map[*Client]struct{}
+	users   map[string]map[*Client]struct{}
 }
 
 // NewHub constructs an empty Hub instance.
@@ -31,6 +32,7 @@ func NewHub() *Hub {
 		broadcast:  make(chan Broadcast),
 		clients:    make(map[*Client]struct{}),
 		rooms:      make(map[string]map[*Client]struct{}),
+		users:      make(map[string]map[*Client]struct{}),
 	}
 }
 
@@ -71,11 +73,35 @@ func (h *Hub) BroadcastToRoomExcept(roomID string, data []byte, exclude *Client)
 	h.broadcast <- Broadcast{RoomID: roomID, Data: data, Exclude: exclude}
 }
 
+// SendToUser sends a message to all connected clients for a specific user.
+func (h *Hub) SendToUser(userID string, data []byte) {
+	h.mu.RLock()
+	defer h.mu.RUnlock()
+
+	if clients, ok := h.users[userID]; ok {
+		for client := range clients {
+			select {
+			case client.Send <- data:
+			default:
+				close(client.Send)
+				delete(clients, client)
+			}
+		}
+	}
+}
+
 func (h *Hub) addClient(client *Client) {
 	h.mu.Lock()
 	defer h.mu.Unlock()
 
 	h.clients[client] = struct{}{}
+
+	// Add to user map
+	if h.users[client.UserID] == nil {
+		h.users[client.UserID] = make(map[*Client]struct{})
+	}
+	h.users[client.UserID][client] = struct{}{}
+
 	for _, roomID := range client.Rooms {
 		if h.rooms[roomID] == nil {
 			h.rooms[roomID] = make(map[*Client]struct{})
@@ -89,6 +115,15 @@ func (h *Hub) removeClient(client *Client) {
 	defer h.mu.Unlock()
 
 	delete(h.clients, client)
+
+	// Remove from user map
+	if clients, ok := h.users[client.UserID]; ok {
+		delete(clients, client)
+		if len(clients) == 0 {
+			delete(h.users, client.UserID)
+		}
+	}
+
 	for _, roomID := range client.Rooms {
 		if members, ok := h.rooms[roomID]; ok {
 			delete(members, client)

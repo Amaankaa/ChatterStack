@@ -2,6 +2,7 @@ package rooms
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"strings"
@@ -38,13 +39,19 @@ type roomRepository interface {
 	Delete(ctx context.Context, roomID string) error
 }
 
+// publisher emits events to interested subscribers (e.g. via Redis pub/sub).
+type publisher interface {
+	Publish(ctx context.Context, channel string, payload []byte) error
+}
+
 type service struct {
 	repo roomRepository
+	pub  publisher
 }
 
 // NewService wires the room domain service with its dependencies.
-func NewService(repo roomRepository) Service {
-	return &service{repo: repo}
+func NewService(repo roomRepository, pub publisher) Service {
+	return &service{repo: repo, pub: pub}
 }
 
 func (s *service) Create(ctx context.Context, input CreateRoomInput) (*models.Room, error) {
@@ -70,6 +77,13 @@ func (s *service) Create(ctx context.Context, input CreateRoomInput) (*models.Ro
 	if err := s.repo.Create(ctx, room, members); err != nil {
 		return nil, err
 	}
+
+	if s.pub != nil {
+		for _, m := range members {
+			_ = s.publishRoomAdded(ctx, room, m.UserID)
+		}
+	}
+
 	return room, nil
 }
 
@@ -84,7 +98,18 @@ func (s *service) AddMember(ctx context.Context, roomID, userID string, role mod
 		role = models.RoomRoleMember
 	}
 	member := models.RoomMember{RoomID: roomID, UserID: userID, Role: role}
-	return s.repo.AddMember(ctx, member)
+	if err := s.repo.AddMember(ctx, member); err != nil {
+		return err
+	}
+
+	if s.pub != nil {
+		room, err := s.repo.GetByID(ctx, roomID)
+		if err == nil {
+			_ = s.publishRoomAdded(ctx, room, userID)
+		}
+	}
+
+	return nil
 }
 
 func (s *service) RemoveMember(ctx context.Context, roomID, userID string) error {
@@ -182,6 +207,21 @@ func (s *service) Delete(ctx context.Context, roomID, requesterID string) error 
 		return err
 	}
 	return nil
+}
+
+func (s *service) publishRoomAdded(ctx context.Context, room *models.Room, userID string) error {
+	payload := map[string]interface{}{
+		"event": "room_added",
+		"data":  room,
+	}
+
+	bytes, err := json.Marshal(payload)
+	if err != nil {
+		return err
+	}
+
+	channel := fmt.Sprintf("users:%s:events", userID)
+	return s.pub.Publish(ctx, channel, bytes)
 }
 
 func normalizePair(a, b string) (string, string) {

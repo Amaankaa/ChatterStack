@@ -36,8 +36,8 @@ func (f *fakePatternSubscriber) PatternSubscribe(ctx context.Context, patterns .
 	}, nil
 }
 
-func (f *fakePatternSubscriber) publish(payload []byte) {
-	f.ch <- &redis.Message{Payload: string(payload)}
+func (f *fakePatternSubscriber) publish(channel string, payload []byte) {
+	f.ch <- &redis.Message{Channel: channel, Payload: string(payload)}
 }
 
 func TestStartMessageRelayBroadcastsMessages(t *testing.T) {
@@ -49,7 +49,23 @@ func TestStartMessageRelayBroadcastsMessages(t *testing.T) {
 	subscriber := newFakePatternSubscriber()
 	StartMessageRelay(ctx, hub, subscriber)
 
-	require.Eventually(t, func() bool { return len(subscriber.patterns) == 1 && subscriber.patterns[0][0] == roomMessagePattern }, time.Second, 10*time.Millisecond)
+	require.Eventually(t, func() bool {
+		if len(subscriber.patterns) != 1 {
+			return false
+		}
+		patterns := subscriber.patterns[0]
+		hasRoom := false
+		hasUser := false
+		for _, p := range patterns {
+			if p == roomMessagePattern {
+				hasRoom = true
+			}
+			if p == userEventPattern {
+				hasUser = true
+			}
+		}
+		return hasRoom && hasUser
+	}, time.Second, 10*time.Millisecond)
 
 	client := &Client{
 		Send:    make(chan []byte, 1),
@@ -75,7 +91,7 @@ func TestStartMessageRelayBroadcastsMessages(t *testing.T) {
 	payload, err := json.Marshal(msg)
 	require.NoError(t, err)
 
-	subscriber.publish(payload)
+	subscriber.publish("rooms:room-1:messages", payload)
 
 	select {
 	case data := <-client.Send:
@@ -137,7 +153,7 @@ func TestStartMessageRelayBroadcastsDeleteEvents(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	subscriber.publish(payload)
+	subscriber.publish("rooms:room-1:messages", payload)
 
 	select {
 	case data := <-client.Send:
@@ -151,5 +167,58 @@ func TestStartMessageRelayBroadcastsDeleteEvents(t *testing.T) {
 		require.Equal(t, "room-1", envelope.Data["room_id"])
 	case <-time.After(time.Second):
 		t.Fatal("expected delete broadcast message")
+	}
+}
+
+func TestStartMessageRelayBroadcastsUserEvents(t *testing.T) {
+	hub := NewHub()
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	go hub.Run(ctx)
+
+	subscriber := newFakePatternSubscriber()
+	StartMessageRelay(ctx, hub, subscriber)
+
+	require.Eventually(t, func() bool { return len(subscriber.patterns) == 1 }, time.Second, 10*time.Millisecond)
+
+	client := &Client{
+		Send:     make(chan []byte, 1),
+		UserID:   "user-1",
+		Username: "User 1",
+		Rooms:    []string{},
+		roomSet:  map[string]struct{}{},
+	}
+	hub.Register(client)
+
+	// Wait for client to be registered in user map
+	require.Eventually(t, func() bool {
+		hub.mu.RLock()
+		defer hub.mu.RUnlock()
+		return len(hub.users["user-1"]) == 1
+	}, time.Second, 10*time.Millisecond)
+
+	payload := map[string]interface{}{
+		"event": "room_added",
+		"data": map[string]interface{}{
+			"id":   "room-new",
+			"name": "New Room",
+		},
+	}
+	payloadBytes, err := json.Marshal(payload)
+	require.NoError(t, err)
+
+	subscriber.publish("users:user-1:events", payloadBytes)
+
+	select {
+	case data := <-client.Send:
+		var envelope map[string]interface{}
+		require.NoError(t, json.Unmarshal(data, &envelope))
+		require.Equal(t, "room_added", envelope["event"])
+		dataMap := envelope["data"].(map[string]interface{})
+		require.Equal(t, "room-new", dataMap["id"])
+		require.Equal(t, "New Room", dataMap["name"])
+	case <-time.After(time.Second):
+		t.Fatal("expected broadcast message")
 	}
 }

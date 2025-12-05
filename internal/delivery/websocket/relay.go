@@ -11,7 +11,10 @@ import (
 	"github.com/redis/go-redis/v9"
 )
 
-const roomMessagePattern = "rooms:*:messages"
+const (
+	roomMessagePattern = "rooms:*:messages"
+	userEventPattern   = "users:*:events"
+)
 
 // PatternSubscriber abstracts Redis pattern subscription capabilities.
 type PatternSubscriber interface {
@@ -21,7 +24,7 @@ type PatternSubscriber interface {
 // StartMessageRelay connects the websocket hub to Redis pub/sub announcements.
 func StartMessageRelay(ctx context.Context, hub *Hub, subscriber PatternSubscriber) {
 	go func() {
-		ch, closeFn, err := subscriber.PatternSubscribe(ctx, roomMessagePattern)
+		ch, closeFn, err := subscriber.PatternSubscribe(ctx, roomMessagePattern, userEventPattern)
 		if err != nil {
 			log.Printf("websocket: pattern subscribe failed: %v", err)
 			return
@@ -41,6 +44,16 @@ func StartMessageRelay(ctx context.Context, hub *Hub, subscriber PatternSubscrib
 			case msg, ok := <-ch:
 				if !ok {
 					return
+				}
+
+				// Handle user events
+				if strings.Contains(msg.Channel, "users:") && strings.Contains(msg.Channel, ":events") {
+					parts := strings.Split(msg.Channel, ":")
+					if len(parts) >= 3 {
+						userID := parts[1]
+						hub.SendToUser(userID, []byte(msg.Payload))
+					}
+					continue
 				}
 
 				var envelope struct {
