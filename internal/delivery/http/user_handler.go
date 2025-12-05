@@ -21,7 +21,7 @@ func NewUserHandler(userUC *usecase.UserUseCase) *UserHandler {
 
 // RegisterRoutes attaches user handlers to the provided router group.
 func (h *UserHandler) RegisterRoutes(group *gin.RouterGroup) {
-	group.GET("/", h.getByEmail)
+	group.GET("", h.getByEmail)
 	group.GET("/:userID", h.getProfile)
 	group.PATCH("/:userID/status", h.updateStatus)
 }

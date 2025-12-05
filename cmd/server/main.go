@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"strings"
 	"syscall"
 	"time"
 
@@ -283,6 +284,10 @@ func startWebsocketServer(ctx context.Context, cfg config.Config) error {
 
 	http.HandleFunc("/ws", func(w http.ResponseWriter, r *http.Request) {
 		token := wsdelivery.ExtractBearerToken(r.Header.Get("Authorization"))
+		if token == "" {
+			// Allow browser clients to pass JWT via query param when headers aren't available
+			token = strings.TrimSpace(r.URL.Query().Get("access_token"))
+		}
 		if token == "" {
 			http.Error(w, "missing bearer token", http.StatusUnauthorized)
 			return

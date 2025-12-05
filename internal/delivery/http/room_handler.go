@@ -23,8 +23,8 @@ func NewRoomHandler(roomUC *usecase.RoomUseCase) *RoomHandler {
 
 // RegisterRoutes attaches room handlers to the provided router group.
 func (h *RoomHandler) RegisterRoutes(group *gin.RouterGroup) {
-	group.GET("/", h.search)
-	group.POST("/", h.create)
+	group.GET("", h.search)
+	group.POST("", h.create)
 	group.POST("/direct", h.ensureDirectRoom)
 	group.POST("/:roomID/members", h.addMember)
 	group.DELETE("/:roomID/members/:userID", h.removeMember)
