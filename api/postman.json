@@ -1,7 +1,146 @@
 {
   "info": {
     "name": "ChatterStack Postman Collection",
-    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json",
+    "description": "CloudFront requires X-Auth-Token for REST; ALB accepts Authorization: Bearer too."
   },
-  "item": []
+  "variable": [
+    { "key": "base_cf", "value": "https://d1176qoi9kdya5.cloudfront.net/v1" },
+    { "key": "base_alb", "value": "http://chatterstack-alb-730649082.us-east-1.elb.amazonaws.com/v1" },
+    { "key": "access_token", "value": "" }
+  ],
+  "item": [
+    {
+      "name": "Auth",
+      "item": [
+        {
+          "name": "Register",
+          "request": {
+            "method": "POST",
+            "header": [ { "key": "Content-Type", "value": "application/json" } ],
+            "url": { "raw": "{{base_cf}}/auth/register", "host": ["{{base_cf}}"], "path": ["auth","register"] },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"email\": \"user@example.com\",\n  \"password\": \"supersecret\",\n  \"name\": \"User\"\n}"
+            }
+          }
+        },
+        {
+          "name": "Login",
+          "request": {
+            "method": "POST",
+            "header": [ { "key": "Content-Type", "value": "application/json" } ],
+            "url": { "raw": "{{base_cf}}/auth/login", "host": ["{{base_cf}}"], "path": ["auth","login"] },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"email\": \"user@example.com\",\n  \"password\": \"supersecret\"\n}"
+            }
+          }
+        },
+        {
+          "name": "Refresh",
+          "request": {
+            "method": "POST",
+            "header": [ { "key": "Content-Type", "value": "application/json" } ],
+            "url": { "raw": "{{base_cf}}/auth/refresh", "host": ["{{base_cf}}"], "path": ["auth","refresh"] },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"refresh_token\": \"<refresh_token>\"\n}"
+            }
+          }
+        },
+        {
+          "name": "Logout",
+          "request": {
+            "method": "POST",
+            "header": [ { "key": "X-Auth-Token", "value": "{{access_token}}" } ],
+            "url": { "raw": "{{base_cf}}/auth/logout", "host": ["{{base_cf}}"], "path": ["auth","logout"] }
+          }
+        }
+      ]
+    },
+    {
+      "name": "Users",
+      "item": [
+        {
+          "name": "Get by email",
+          "request": {
+            "method": "GET",
+            "header": [ { "key": "X-Auth-Token", "value": "{{access_token}}" } ],
+            "url": {
+              "raw": "{{base_cf}}/users?email={{email}}",
+              "host": ["{{base_cf}}"],
+              "path": ["users"],
+              "query": [ { "key": "email", "value": "test@example.com" } ]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "Rooms",
+      "item": [
+        {
+          "name": "List rooms",
+          "request": {
+            "method": "GET",
+            "header": [ { "key": "X-Auth-Token", "value": "{{access_token}}" } ],
+            "url": { "raw": "{{base_cf}}/rooms", "host": ["{{base_cf}}"], "path": ["rooms"] }
+          }
+        },
+        {
+          "name": "Create room",
+          "request": {
+            "method": "POST",
+            "header": [ { "key": "Content-Type", "value": "application/json" }, { "key": "X-Auth-Token", "value": "{{access_token}}" } ],
+            "url": { "raw": "{{base_cf}}/rooms", "host": ["{{base_cf}}"], "path": ["rooms"] },
+            "body": { "mode": "raw", "raw": "{\n  \"name\": \"General\"\n}" }
+          }
+        }
+      ]
+    },
+    {
+      "name": "Messages",
+      "item": [
+        {
+          "name": "List messages",
+          "request": {
+            "method": "GET",
+            "header": [ { "key": "X-Auth-Token", "value": "{{access_token}}" } ],
+            "url": { "raw": "{{base_cf}}/rooms/{{room_id}}/messages", "host": ["{{base_cf}}"], "path": ["rooms","{{room_id}}","messages"] }
+          }
+        },
+        {
+          "name": "Send message",
+          "request": {
+            "method": "POST",
+            "header": [ { "key": "Content-Type", "value": "application/json" }, { "key": "X-Auth-Token", "value": "{{access_token}}" } ],
+            "url": { "raw": "{{base_cf}}/rooms/{{room_id}}/messages", "host": ["{{base_cf}}"], "path": ["rooms","{{room_id}}","messages"] },
+            "body": { "mode": "raw", "raw": "{\n  \"content\": \"Hello!\"\n}" }
+          }
+        }
+      ]
+    },
+    {
+      "name": "WebSocket",
+      "item": [
+        {
+          "name": "Connect (CloudFront)",
+          "request": {
+            "url": {
+              "raw": "wss://d1176qoi9kdya5.cloudfront.net/ws?room_id={{room_id}}&access_token={{access_token}}",
+              "protocol": "wss",
+              "host": ["d1176qoi9kdya5","cloudfront","net"],
+              "path": ["ws"],
+              "query": [
+                { "key": "room_id", "value": "room_1" },
+                { "key": "access_token", "value": "{{access_token}}" }
+              ]
+            },
+            "description": "Use Postman WebSocket tab to connect and send/receive events."
+          }
+        }
+      ]
+    }
+  ]
 }

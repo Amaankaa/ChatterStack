@@ -36,7 +36,7 @@ type typingEventPayload struct {
 
 type typingBroadcastPayload struct {
 	Username string `json:"username"`
-	RoomID   string `json:"room_id,omitempty"`
+	RoomID   string `json:"room_id"`
 }
 
 func toDomainAttachments(list []attachmentPayload) []models.Attachment {

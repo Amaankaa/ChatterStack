@@ -1,6 +1,375 @@
 openapi: 3.0.3
 info:
   title: ChatterStack API
-  version: 0.1.0
-  description: Initial scaffold for the ChatterStack REST API.
-paths: {}
+  version: 1.0.0
+  description: "REST API for authentication, users, rooms, and messages. CloudFront requires X-Auth-Token for auth; ALB accepts Authorization: Bearer."
+servers:
+  - url: https://d1176qoi9kdya5.cloudfront.net/v1
+    description: CloudFront
+  - url: http://chatterstack-alb-730649082.us-east-1.elb.amazonaws.com/v1
+    description: ALB (direct)
+components:
+  securitySchemes:
+    XAuthToken:
+      type: apiKey
+      in: header
+      name: X-Auth-Token
+    BearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+  schemas:
+    LoginRequest:
+      type: object
+      required:
+        - email
+        - password
+      properties:
+        email:
+          type: string
+          format: email
+        password:
+          type: string
+          minLength: 6
+    TokenPair:
+      type: object
+      properties:
+        access_token:
+          type: string
+        refresh_token:
+          type: string
+    RefreshRequest:
+      type: object
+      required:
+        - refresh_token
+      properties:
+        refresh_token:
+          type: string
+    User:
+      type: object
+      properties:
+        id:
+          type: string
+        email:
+          type: string
+        name:
+          type: string
+    Room:
+      type: object
+      properties:
+        id:
+          type: string
+        name:
+          type: string
+    Message:
+      type: object
+      properties:
+        id:
+          type: string
+        room_id:
+          type: string
+        sender_id:
+          type: string
+        content:
+          type: string
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+paths:
+  /auth/register:
+    post:
+      summary: Register a new user
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - email
+                - password
+                - name
+              properties:
+                email:
+                  type: string
+                  format: email
+                password:
+                  type: string
+                  minLength: 6
+                name:
+                  type: string
+      responses:
+        '201':
+          description: Created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/User'
+        '400':
+          description: Validation error
+        '409':
+          description: Email already in use
+  /auth/login:
+    post:
+      summary: Login
+      x-examples:
+        curl: |
+          curl -s https://d1176qoi9kdya5.cloudfront.net/v1/auth/login \
+            -H 'Content-Type: application/json' \
+            -d '{"email":"user@example.com","password":"supersecret"}'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/LoginRequest'
+            examples:
+              sample:
+                value:
+                  email: user@example.com
+                  password: supersecret
+      responses:
+        '200':
+          description: Tokens
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TokenPair'
+              examples:
+                sample:
+                  value:
+                    access_token: eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...
+                    refresh_token: eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...
+        '401':
+          description: Invalid credentials
+  /auth/refresh:
+    post:
+      summary: Refresh access token
+      x-examples:
+        curl: |
+          curl -s https://d1176qoi9kdya5.cloudfront.net/v1/auth/refresh \
+            -H 'Content-Type: application/json' \
+            -d '{"refresh_token":"<refresh_token>"}'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RefreshRequest'
+            examples:
+              sample:
+                value:
+                  refresh_token: eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...
+      responses:
+        '200':
+          description: New access token
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  access_token:
+                    type: string
+              examples:
+                sample:
+                  value:
+                    access_token: eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...
+        '401':
+          description: Invalid or expired refresh token
+  /auth/logout:
+    post:
+      summary: Logout
+      security:
+        - XAuthToken: []
+        - BearerAuth: []
+      x-examples:
+        curl_cf: |
+          curl -i -X POST https://d1176qoi9kdya5.cloudfront.net/v1/auth/logout \
+            -H 'X-Auth-Token: <access_token>'
+        curl_alb: |
+          curl -i -X POST http://chatterstack-alb-730649082.us-east-1.elb.amazonaws.com/v1/auth/logout \
+            -H 'Authorization: Bearer <access_token>'
+      responses:
+        '204':
+          description: No Content
+  /users:
+    get:
+      summary: Get user by email
+      security:
+        - XAuthToken: []
+        - BearerAuth: []
+      parameters:
+        - in: query
+          name: email
+          required: true
+          schema:
+            type: string
+      x-examples:
+        curl_cf: |
+          curl -s 'https://d1176qoi9kdya5.cloudfront.net/v1/users?email=test@example.com' \
+            -H 'X-Auth-Token: <access_token>'
+        curl_alb: |
+          curl -s 'http://chatterstack-alb-730649082.us-east-1.elb.amazonaws.com/v1/users?email=test@example.com' \
+            -H 'Authorization: Bearer <access_token>'
+      responses:
+        '200':
+          description: User
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/User'
+              examples:
+                sample:
+                  value:
+                    id: "user_123"
+                    email: "test@example.com"
+                    name: "Test User"
+        '400':
+          description: Missing email
+        '404':
+          description: Not found
+        '401':
+          description: Unauthorized
+  /rooms:
+    get:
+      summary: List rooms
+      security:
+        - XAuthToken: []
+        - BearerAuth: []
+      x-examples:
+        curl_cf: |
+          curl -s https://d1176qoi9kdya5.cloudfront.net/v1/rooms \
+            -H 'X-Auth-Token: <access_token>'
+      responses:
+        '200':
+          description: Rooms
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/Room'
+              examples:
+                sample:
+                  value:
+                    - id: room_1
+                      name: General
+                    - id: room_2
+                      name: Support
+    post:
+      summary: Create room
+      security:
+        - XAuthToken: []
+        - BearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - name
+              properties:
+                name:
+                  type: string
+            examples:
+              sample:
+                value:
+                  name: General
+      responses:
+        '201':
+          description: Room
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Room'
+              examples:
+                sample:
+                  value:
+                    id: room_1
+                    name: General
+  /rooms/{room_id}/messages:
+    get:
+      summary: List messages in room
+      security:
+        - XAuthToken: []
+        - BearerAuth: []
+      parameters:
+        - in: path
+          name: room_id
+          required: true
+          schema:
+            type: string
+      x-examples:
+        curl_cf: |
+          curl -s 'https://d1176qoi9kdya5.cloudfront.net/v1/rooms/room_1/messages' \
+            -H 'X-Auth-Token: <access_token>'
+      responses:
+        '200':
+          description: Messages
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/Message'
+              examples:
+                sample:
+                  value:
+                    - id: msg_1
+                      room_id: room_1
+                      sender_id: user_123
+                      content: Hello!
+                      created_at: 2025-12-08T10:12:00Z
+                      updated_at: 2025-12-08T10:12:00Z
+    post:
+      summary: Send message to room
+      security:
+        - XAuthToken: []
+        - BearerAuth: []
+      parameters:
+        - in: path
+          name: room_id
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - content
+              properties:
+                content:
+                  type: string
+            examples:
+              sample:
+                value:
+                  content: Hello!
+      responses:
+        '201':
+          description: Message
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Message'
+              examples:
+                sample:
+                  value:
+                    id: msg_1
+                    room_id: room_1
+                    sender_id: user_123
+                    content: Hello!
+                    created_at: 2025-12-08T10:12:00Z
+                    updated_at: 2025-12-08T10:12:00Z
+# openapi: 3.0.3
+# info:
+#   title: ChatterStack API
+#   version: 0.1.0
+#   description: Initial scaffold for the ChatterStack REST API.
+# paths: {}

@@ -245,6 +245,66 @@ CI (see `.github/workflows/ci.yml`) enforces formatting via `gofmt` and executes
 - Configure rate limiting per your expected traffic profile.
 - Use HTTPS and secure WebSocket (`wss://`) behind a reverse proxy (Nginx, Traefik, AWS ALB, etc.).
 
+## Client Integration Examples
+
+Use `X-Auth-Token` for REST via CloudFront and `access_token` query for WebSocket.
+
+### REST (CloudFront)
+
+```ts
+// Example using fetch from a browser app
+const CF_BASE = 'https://d1176qoi9kdya5.cloudfront.net/v1';
+
+async function getUserByEmail(email: string, accessToken: string) {
+	const res = await fetch(`${CF_BASE}/users?email=${encodeURIComponent(email)}` , {
+		method: 'GET',
+		headers: {
+			'Content-Type': 'application/json',
+			'X-Auth-Token': accessToken,
+		},
+		credentials: 'include', // optional if you later use cookies
+	});
+	if (!res.ok) throw new Error(`HTTP ${res.status}`);
+	return res.json();
+}
+```
+
+### WebSocket (CloudFront)
+
+```ts
+const CF_WS = 'wss://d1176qoi9kdya5.cloudfront.net/ws';
+
+function connectWS(accessToken: string, roomIds: string[]) {
+	const params = new URLSearchParams();
+	roomIds.forEach((id) => params.append('room_id', id));
+	params.set('access_token', accessToken);
+
+	const ws = new WebSocket(`${CF_WS}?${params.toString()}`);
+
+	ws.onopen = () => {
+		console.log('WS connected');
+	};
+	ws.onmessage = (ev) => {
+		const msg = JSON.parse(ev.data);
+		console.log('WS event', msg);
+	};
+	ws.onclose = () => {
+		console.log('WS closed');
+	};
+	ws.onerror = (err) => {
+		console.error('WS error', err);
+	};
+
+	return ws;
+}
+```
+
+### CORS
+
+- Default allowed origin: `https://chatterstack.vercel.app`.
+- Preflight includes `Access-Control-Allow-Headers: Content-Type, Authorization, X-Auth-Token` and `Access-Control-Max-Age: 600`.
+- For local dev, set env `CORS_ALLOWED_ORIGINS=https://localhost:3000` (and any others) before starting the server.
+
 ## Troubleshooting
 - **`column messages.updated_at does not exist`**: run the latest migration (see [Database & Migrations](#database--migrations)).
 - **WebSocket typing indicators missing**: confirm the WebSocket process was restarted after deploying the typing feature and that clients include `room_id` when joined to multiple rooms.

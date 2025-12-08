@@ -1,8 +1,16 @@
 # ChatterStack HTTP & WebSocket API Documentation
 
-Base URL: `https://{host}:{port}/v1`
+Base URLs:
+- CloudFront REST: `https://d1176qoi9kdya5.cloudfront.net/v1`
+- ALB REST (direct): `http://chatterstack-alb-730649082.us-east-1.elb.amazonaws.com/v1`
+- CloudFront WebSocket: `wss://d1176qoi9kdya5.cloudfront.net/ws`
 
-All protected endpoints require an `Authorization: Bearer {access_token}` header unless otherwise noted. Access tokens are JWTs issued by the auth endpoints and should be treated as short-lived.
+Authentication headers:
+- Through CloudFront (REST), send `X-Auth-Token: <access_jwt>`.
+- Direct to ALB (REST), you may use `Authorization: Bearer <access_jwt>` or `X-Auth-Token: <access_jwt>`.
+- WebSocket auth via query string: `access_token=<access_jwt>`.
+
+Access tokens are JWTs issued by the auth endpoints and should be treated as short-lived.
 
 ## Authentication Endpoints
 
@@ -49,15 +57,9 @@ All protected endpoints require an `Authorization: Bearer {access_token}` header
 
 ### Logout
 - **POST** `/auth/logout`
-- **Request Body:**
-  ```json
-  {
-    "user_id": "string"
-  }
-  ```
+- **Headers:** `X-Auth-Token` (CloudFront) or `Authorization: Bearer` (ALB)
 - **Responses:**
   - `204 No Content`: Session invalidated and refresh token revoked.
-  - `400 Bad Request`: Missing `user_id`.
 
 ## User Endpoints (Protected)
 
@@ -69,6 +71,7 @@ All protected endpoints require an `Authorization: Bearer {access_token}` header
 
 ### Get User by Email
 - **GET** `/users?email={email}`
+- **Headers:** `X-Auth-Token` (CloudFront) or `Authorization: Bearer` (ALB)
 - **Responses:**
   - `200 OK`: Returns user profile.
   - `400 Bad Request`: Missing `email` query param.
@@ -91,6 +94,7 @@ All protected endpoints require an `Authorization: Bearer {access_token}` header
 
 ### Create Room
 - **POST** `/rooms`
+- **Headers:** `X-Auth-Token` (CloudFront) or `Authorization: Bearer` (ALB)
 - **Request Body:**
   ```json
   {
@@ -168,6 +172,7 @@ All message endpoints infer the caller from the bearer token.
 
 ### Send Message
 - **POST** `/rooms/{roomID}/messages`
+- **Headers:** `X-Auth-Token` (CloudFront) or `Authorization: Bearer` (ALB)
 - **Request Body:**
   ```json
   {
@@ -187,6 +192,7 @@ All message endpoints infer the caller from the bearer token.
 
 ### List Messages
 - **GET** `/rooms/{roomID}/messages`
+- **Headers:** `X-Auth-Token` (CloudFront) or `Authorization: Bearer` (ALB)
 - **Query Parameters:**
   - `page` *(optional)*: Defaults to 1 when paginating.
   - `limit` *(optional)*: Defaults to 50.
@@ -270,9 +276,19 @@ Unless stated otherwise, message responses return:
 
 ## WebSocket Gateway
 
-- **URL:** `ws(s)://{host}:{port}/ws?room_id=room-1&room_id=room-2`
-- **Headers:** `Authorization: Bearer {access_token}`
+- **URL:** `wss://d1176qoi9kdya5.cloudfront.net/ws?room_id=room-1&room_id=room-2`
+- **Auth:** Provide token via query string `access_token=<access_jwt>`.
 - **Query Params:** Supply one or more `room_id` values. The server verifies membership before joining rooms.
+
+## CORS
+- Allowed Origin: `https://chatterstack.vercel.app` (default). Configure `CORS_ALLOWED_ORIGINS` to add more (e.g., `https://localhost:3000`).
+- Preflight (OPTIONS) responses include:
+  - `Access-Control-Allow-Origin: https://chatterstack.vercel.app`
+  - `Access-Control-Allow-Methods: GET,POST,PUT,PATCH,DELETE,OPTIONS`
+  - `Access-Control-Allow-Headers: Content-Type, Authorization, X-Auth-Token`
+  - `Access-Control-Allow-Credentials: true`
+  - `Access-Control-Max-Age: 600`
+- CloudFront `/v1/*` behavior forwards origin CORS headers without overriding them.
 
 All inbound events are JSON objects with an `event` field and a `data` payload. Unknown events are ignored.
 
@@ -353,4 +369,4 @@ Messages sent over REST or WebSocket propagate through Redis pub/sub so every co
 
 ---
 
-This document reflects the current server implementation. Adjust base URLs and authentication flows to match your deployment environment.
+This document reflects the current server implementation and CloudFront behavior. Adjust base URLs and authentication flows to match your deployment environment.
