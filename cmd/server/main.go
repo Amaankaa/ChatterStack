@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"log"
 	"net/http"
+	"net/url"
 	"os"
 	"os/signal"
 	"strings"
@@ -62,6 +63,9 @@ func main() {
 }
 
 func startAPIServer(ctx context.Context, cfg config.Config) error {
+	// Log DSN with password masked and sslmode for diagnostics
+	masked, ssl := maskDSN(cfg.Postgres.DSN)
+	log.Printf("postgres dsn: %s (sslmode=%s)", masked, ssl)
 	pgxCfg, err := pgxpool.ParseConfig(cfg.Postgres.DSN)
 	if err != nil {
 		return fmt.Errorf("parse postgres dsn: %w", err)
@@ -193,6 +197,9 @@ func startAPIServer(ctx context.Context, cfg config.Config) error {
 }
 
 func startWebsocketServer(ctx context.Context, cfg config.Config) error {
+	// Log DSN with password masked and sslmode for diagnostics
+	masked, ssl := maskDSN(cfg.Postgres.DSN)
+	log.Printf("postgres dsn: %s (sslmode=%s)", masked, ssl)
 	pgxCfg, err := pgxpool.ParseConfig(cfg.Postgres.DSN)
 	if err != nil {
 		return fmt.Errorf("parse postgres dsn: %w", err)
@@ -363,4 +370,25 @@ func startWebsocketServer(ctx context.Context, cfg config.Config) error {
 	case err := <-errChan:
 		return err
 	}
+}
+
+// maskDSN masks the password in a postgres DSN and returns sslmode.
+func maskDSN(dsn string) (string, string) {
+	u, err := url.Parse(dsn)
+	if err != nil {
+		return dsn, ""
+	}
+	// Extract sslmode from query
+	q := u.Query()
+	ssl := q.Get("sslmode")
+	// Mask password
+	if u.User != nil {
+		username := u.User.Username()
+		if _, has := u.User.Password(); has {
+			u.User = url.UserPassword(username, "****")
+		} else {
+			u.User = url.User(username)
+		}
+	}
+	return u.String(), ssl
 }

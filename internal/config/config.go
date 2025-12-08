@@ -1,9 +1,11 @@
 package config
+
 import (
 	"fmt"
 	"net/url"
 	"os"
 	"strconv"
+	"strings"
 	"time"
 )
 
@@ -115,9 +117,10 @@ func Load() (Config, error) {
 	}
 	cfg.RateLimit = RateLimitConfig{Requests: requests, Burst: burst, Window: window}
 
-	// Prefer an explicit POSTGRES_DSN. If not provided, compose it from parts.
+	// Prefer an explicit POSTGRES_DSN. If provided, ensure sslmode is set appropriately.
 	if dsn := os.Getenv("POSTGRES_DSN"); dsn != "" {
-		cfg.Postgres.DSN = dsn
+		// If the DSN lacks an explicit sslmode, set a sensible default.
+		cfg.Postgres.DSN = ensureSSLMode(dsn)
 	} else {
 		user := getEnv("POSTGRES_USER", "chatterstack")
 		pass := os.Getenv("POSTGRES_PASSWORD")
@@ -126,9 +129,19 @@ func Load() (Config, error) {
 		}
 		host := getEnv("POSTGRES_HOST", "localhost")
 		db := getEnv("POSTGRES_DB", "chatterstack")
+		// Allow overriding sslmode explicitly; otherwise pick a sensible default.
+		// RDS commonly requires SSL. Default to 'require' when host is not local.
+		sslmode := getEnv("POSTGRES_SSLMODE", "")
+		if sslmode == "" {
+			if host == "localhost" || host == "127.0.0.1" {
+				sslmode = "disable"
+			} else {
+				sslmode = "require"
+			}
+		}
 		eu := url.QueryEscape(user)
 		ep := url.QueryEscape(pass)
-		cfg.Postgres.DSN = fmt.Sprintf("postgres://%s:%s@%s:5432/%s?sslmode=disable", eu, ep, host, db)
+		cfg.Postgres.DSN = fmt.Sprintf("postgres://%s:%s@%s:5432/%s?sslmode=%s", eu, ep, host, db, sslmode)
 	}
 
 	return cfg, nil
@@ -157,4 +170,25 @@ func parseIntEnv(key string, fallback int) (int, error) {
 		return 0, fmt.Errorf("invalid integer for %s: %v", key, err)
 	}
 	return i, nil
+}
+
+// ensureSSLMode appends or enforces an sslmode in the provided DSN.
+// If no sslmode is present, defaults to 'require' unless the host is local.
+func ensureSSLMode(dsn string) string {
+	u, err := url.Parse(dsn)
+	if err != nil {
+		// If parsing fails, return as-is to avoid breaking existing configs.
+		return dsn
+	}
+	q := u.Query()
+	if q.Get("sslmode") == "" {
+		host := u.Hostname()
+		ssl := "require"
+		if host == "localhost" || host == "127.0.0.1" || strings.HasPrefix(host, "unix:") {
+			ssl = "disable"
+		}
+		q.Set("sslmode", ssl)
+		u.RawQuery = q.Encode()
+	}
+	return u.String()
 }

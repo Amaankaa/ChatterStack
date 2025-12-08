@@ -27,6 +27,14 @@ func Auth(validator TokenValidator) gin.HandlerFunc {
 		header := c.GetHeader("Authorization")
 		token := extractBearerToken(header)
 		if token == "" {
+			// Fallback for environments (e.g., CloudFront) that may not forward Authorization
+			// Accept an alternative header carrying the raw token.
+			alt := strings.TrimSpace(c.GetHeader("X-Auth-Token"))
+			if alt != "" {
+				token = alt
+			}
+		}
+		if token == "" {
 			c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"error": "missing bearer token"})
 			return
 		}

@@ -85,7 +85,6 @@ func (h *AuthHandler) login(c *gin.Context) {
 		respondJSONError(c, status, msg)
 		return
 	}
-
 	c.JSON(http.StatusOK, tokenPayload{
 		AccessToken:  tokens.AccessToken,
 		RefreshToken: tokens.RefreshToken,
