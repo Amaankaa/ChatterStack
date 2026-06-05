@@ -8,7 +8,8 @@ RUN go mod download
 
 COPY . .
 
-RUN CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -o chatterstack ./cmd/server
+# No explicit GOARCH: build natively for the host (works on both amd64 and arm64 servers).
+RUN CGO_ENABLED=0 go build -o chatterstack ./cmd/server
 
 FROM gcr.io/distroless/base-debian12
 

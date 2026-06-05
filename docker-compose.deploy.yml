@@ -1,0 +1,85 @@
+# Production deployment stack for a single small VPS.
+# Brings up Postgres + Redis + the API + the WebSocket gateway, all on a private
+# network, fronted by Caddy which terminates TLS (auto Let's Encrypt) on 80/443.
+#
+# Usage:
+#   cp .env.deploy.example .env
+#   # edit .env (DOMAIN, ACME_EMAIL, POSTGRES_PASSWORD, JWT secrets)
+#   docker compose -f docker-compose.deploy.yml up -d --build
+#
+# See DEPLOY.md for the full walkthrough (DNS, migrations, verification).
+
+services:
+  api:
+    build: .
+    restart: unless-stopped
+    environment:
+      - APP_ENV=production
+      - HTTP_HOST=0.0.0.0
+      - HTTP_PORT=8080
+      - POSTGRES_DSN=postgres://chatterstack:${POSTGRES_PASSWORD}@postgres:5432/chatterstack?sslmode=disable
+      - REDIS_ADDR=redis:6379
+      - JWT_ACCESS_SECRET=${JWT_ACCESS_SECRET}
+      - JWT_REFRESH_SECRET=${JWT_REFRESH_SECRET}
+      - CORS_ALLOWED_ORIGINS=${CORS_ALLOWED_ORIGINS}
+    depends_on:
+      - postgres
+      - redis
+
+  websocket:
+    build: .
+    restart: unless-stopped
+    command: ["--mode", "websocket"]
+    environment:
+      - APP_ENV=production
+      # Bind the WS gateway on 8080 inside its own container so Caddy can
+      # proxy to websocket:8080 (the default would be 8081).
+      - WEBSOCKET_HOST=0.0.0.0
+      - WEBSOCKET_PORT=8080
+      - POSTGRES_DSN=postgres://chatterstack:${POSTGRES_PASSWORD}@postgres:5432/chatterstack?sslmode=disable
+      - REDIS_ADDR=redis:6379
+      - JWT_ACCESS_SECRET=${JWT_ACCESS_SECRET}
+      - JWT_REFRESH_SECRET=${JWT_REFRESH_SECRET}
+    depends_on:
+      - postgres
+      - redis
+
+  postgres:
+    image: postgres:15-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: chatterstack
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: chatterstack
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    command: ["redis-server", "--appendonly", "yes"]
+    volumes:
+      - redis_data:/data
+
+  caddy:
+    image: caddy:2-alpine
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+    environment:
+      - DOMAIN=${DOMAIN}
+      - ACME_EMAIL=${ACME_EMAIL}
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    depends_on:
+      - api
+      - websocket
+
+volumes:
+  postgres_data:
+  redis_data:
+  caddy_data:
+  caddy_config:

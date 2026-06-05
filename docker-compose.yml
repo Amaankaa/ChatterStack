@@ -19,7 +19,7 @@ services:
   websocket:
     build: .
     container_name: chatterstack-websocket
-    command: ["./chatterstack", "--mode", "websocket"]
+    command: ["--mode", "websocket"]
     ports:
       - "9090:8080"
     environment:

@@ -1,0 +1,22 @@
+# Caddy reverse proxy with automatic HTTPS (Let's Encrypt).
+# Routes one public domain to the two internal ChatterStack services:
+#   - /ws and /ws/*  -> websocket gateway (listens on :8080 in its container)
+#   - everything else -> REST API        (listens on :8080 in its container)
+#
+# DOMAIN and ACME_EMAIL are injected from the environment (see docker-compose.deploy.yml).
+
+{
+	email {$ACME_EMAIL}
+}
+
+{$DOMAIN} {
+	@ws path /ws /ws/*
+	handle @ws {
+		# Caddy forwards WebSocket upgrade headers automatically.
+		reverse_proxy websocket:8080
+	}
+
+	handle {
+		reverse_proxy api:8080
+	}
+}

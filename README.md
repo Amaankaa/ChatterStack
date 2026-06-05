@@ -1,54 +1,5 @@
 # ChatterStack
 
-ChatterStack is a real-time chat backend written in Go. It exposes a REST API for auth, user, room, and message management, and a WebSocket gateway for low-latency messaging. The project embraces a clean architecture layout, separating delivery layers, use cases, and domain services from infrastructure concerns such as Postgres persistence and Redis caching/pub-sub.
-
-## Features
-
-- JWT-based authentication with access/refresh token lifecycle.
-- Modular HTTP delivery using Gin and a WebSocket hub for real-time fan-out.
-- PostgreSQL repositories for users, rooms, and messages (with migrations scaffolded under `db/migrations`).
-- Redis cache for session tracking and Redis pub/sub for cross-node WebSocket broadcasts.
-- Configurable request rate limiting and auth middleware.
-- Comprehensive unit tests across delivery, domain, repository, and middleware layers.
-- GitHub Actions CI pipeline enforcing `gofmt` and `go test ./...`.
-- Generated `API_documentation.md` for all endpoints.
-
-## Project Structure
-
-```
-cmd/server/main.go        # Application entrypoint supporting API or WebSocket mode
-internal/config           # Environment-driven configuration loading
-internal/delivery         # HTTP & WebSocket handlers
-internal/domain           # Domain entities and services (auth, rooms, messages, users)
-internal/repository       # Postgres & Redis adapters
-internal/usecase          # Orchestrates domain services for delivery layers
-pkg/middleware            # HTTP middleware (auth, logging, rate limiting)
-api/                      # Swagger + Postman artifacts
-db/migrations             # SQL migrations scaffolding
-```
-
-## Prerequisites
-
-- Go >= 1.21
-- Docker & Docker Compose (optional but recommended)
-- PostgreSQL 14+
-- Redis 7+
-
-## Getting Started
-
-### 1. Configure Environment
-
-```
-cp .env.example .env
-```
-
-Update values such as `POSTGRES_DSN`, `REDIS_ADDR`, and JWT secrets. Rate limiting can be tuned via:
-
-- `RATE_LIMIT_REQUESTS` (default: 100 requests)
-- `RATE_LIMIT_BURST` (default: same as requests)
-- `RATE_LIMIT_WINDOW` (default: 1m)
-# ChatterStack
-
 ChatterStack is a real-time chat backend written in Go that exposes a REST API and a WebSocket gateway for low-latency messaging. It follows clean architecture principles so delivery layers (HTTP, WebSocket) stay isolated from domain logic and infrastructure adapters (PostgreSQL, Redis). Use it as a reference architecture or as a starting point for production chat workloads.
 
 ---
@@ -253,7 +204,7 @@ Use `X-Auth-Token` for REST via CloudFront and `access_token` query for WebSocke
 
 ```ts
 // Example using fetch from a browser app
-const CF_BASE = 'https://d1176qoi9kdya5.cloudfront.net/v1';
+const CF_BASE = 'https://YOUR_DOMAIN/v1'; // e.g. https://chatterstack.example.com/v1
 
 async function getUserByEmail(email: string, accessToken: string) {
 	const res = await fetch(`${CF_BASE}/users?email=${encodeURIComponent(email)}` , {
@@ -272,7 +223,7 @@ async function getUserByEmail(email: string, accessToken: string) {
 ### WebSocket (CloudFront)
 
 ```ts
-const CF_WS = 'wss://d1176qoi9kdya5.cloudfront.net/ws';
+const CF_WS = 'wss://YOUR_DOMAIN/ws'; // e.g. wss://chatterstack.example.com/ws
 
 function connectWS(accessToken: string, roomIds: string[]) {
 	const params = new URLSearchParams();

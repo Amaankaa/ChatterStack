@@ -3,3 +3,6 @@ Progress.md
 *.json
 *.yaml
 error_logs.txt
+.env
+.env.local
+server
